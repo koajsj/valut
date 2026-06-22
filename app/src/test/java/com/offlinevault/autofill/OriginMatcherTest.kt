@@ -21,4 +21,24 @@ class OriginMatcherTest {
     @Test fun missingOriginNeverMatches() {
         assertFalse(OriginMatcher.matches("https://example.com", null))
     }
+
+    @Test fun appIdentifierMatchesSamePackage() {
+        val id = OriginMatcher.appIdentifier("com.example.app")
+        assertTrue(OriginMatcher.matchesApp(id, "com.example.app"))
+        assertTrue(OriginMatcher.matchesApp("com.example.app", "com.example.app"))
+    }
+
+    @Test fun appIdentifierRejectsDifferentPackageAndNull() {
+        val id = OriginMatcher.appIdentifier("com.example.app")
+        assertFalse(OriginMatcher.matchesApp(id, "com.other.app"))
+        assertFalse(OriginMatcher.matchesApp(id, null))
+    }
+
+    @Test fun sameTargetDistinguishesAppsAndOrigins() {
+        val a = OriginMatcher.appIdentifier("com.example.app")
+        assertTrue(OriginMatcher.sameTarget(a, "com.example.app"))
+        assertFalse(OriginMatcher.sameTarget(a, "com.other.app"))
+        assertTrue(OriginMatcher.sameTarget("https://example.com/login", "example.com"))
+        assertFalse(OriginMatcher.sameTarget("https://example.com", a))
+    }
 }

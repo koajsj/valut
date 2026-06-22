@@ -1,5 +1,6 @@
 package com.offlinevault.data.repository
 
+import com.offlinevault.autofill.OriginMatcher
 import com.offlinevault.data.dao.PasswordDao
 import com.offlinevault.data.model.PasswordEntity
 import com.offlinevault.security.CryptoManager
@@ -112,6 +113,49 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
 
     suspend fun deleteById(id: String) {
         passwordDao.getById(id)?.let { passwordDao.delete(it) }
+    }
+
+    /**
+     * Inserts (or updates) a credential captured by the autofill Save flow. If an entry for the
+     * same target (web origin / native app) and username already exists, its password is refreshed
+     * instead of creating a duplicate. [identifier] is a domain or an `androidapp://<package>` id.
+     */
+    suspend fun upsertFromAutofill(vaultId: String, identifier: String, username: String, password: String) {
+        val key = SessionManager.requireKey()
+        val now = System.currentTimeMillis()
+        val existing = passwordDao.getAllOnce().firstOrNull { entity ->
+            runCatching {
+                val url = EncryptedField.decrypt(entity.url)
+                val user = EncryptedField.decrypt(entity.username)
+                OriginMatcher.sameTarget(url, identifier) && user.equals(username.trim(), ignoreCase = true)
+            }.getOrDefault(false)
+        }
+        if (existing != null) {
+            passwordDao.update(
+                existing.copy(
+                    encryptedPassword = CryptoManager.encryptString(key, password),
+                    strengthScore = PasswordStrengthChecker.evaluate(password).score,
+                    updatedAt = now
+                )
+            )
+            return
+        }
+        save(
+            id = null,
+            vaultId = vaultId,
+            title = titleFor(identifier),
+            username = username.trim(),
+            password = password,
+            url = identifier,
+            tags = emptyList(),
+            note = ""
+        )
+    }
+
+    private fun titleFor(identifier: String): String = when {
+        identifier.startsWith(OriginMatcher.APP_SCHEME) ->
+            identifier.removePrefix(OriginMatcher.APP_SCHEME).substringAfterLast('.').ifBlank { "应用" }
+        else -> OriginMatcher.hostFromUrl(identifier) ?: identifier.ifBlank { "已保存" }
     }
 
     suspend fun allDecrypted(): List<DecryptedPassword> =

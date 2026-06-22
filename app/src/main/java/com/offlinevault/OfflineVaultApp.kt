@@ -1,6 +1,8 @@
 package com.offlinevault
 
 import android.app.Application
+import android.widget.Toast
+import com.offlinevault.autofill.PendingAutofillSave
 import com.offlinevault.security.SessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -32,7 +34,29 @@ class OfflineVaultApp : Application() {
                         // A damaged legacy row must not terminate the application-wide collector.
                     }
                 }
+                persistPendingAutofillSave()
             }
+        }
+    }
+
+    /** Saves a credential captured by autofill while the vault was locked, once it unlocks. */
+    private suspend fun persistPendingAutofillSave() {
+        val capture = PendingAutofillSave.consume() ?: return
+        val saved = withContext(Dispatchers.IO) {
+            try {
+                val vaultId = container.vaultRepository.ensureDefault().id
+                container.passwordRepository.upsertFromAutofill(
+                    vaultId, capture.identifier, capture.username, capture.password
+                )
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+        }
+        if (saved) {
+            Toast.makeText(this, "已将账号保存到密码库", Toast.LENGTH_SHORT).show()
         }
     }
 }
