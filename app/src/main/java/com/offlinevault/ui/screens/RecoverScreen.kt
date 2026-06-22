@@ -50,7 +50,7 @@ fun RecoverScreen(
     onBack: () -> Unit
 ) {
     val mnemonicManager = remember { MnemonicManager() }
-    var mode by remember(mnemonicEnabled) { mutableStateOf(if (mnemonicEnabled) 0 else 0) }
+    var mode by remember { mutableStateOf(0) }
     var answer by remember { mutableStateOf("") }
     var mnemonic by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
@@ -175,9 +175,11 @@ fun RecoverScreen(
                 }
                 if (error == null) {
                     working = true
+                    // Recovery only resets the master credential; it does not unlock the vault.
+                    // On success, return to the unlock screen so the user signs in with the new one.
                     val callback = { success: Boolean, message: String? ->
                         working = false
-                        error = if (success) message else message
+                        if (success) onBack() else error = message
                     }
                     if (mode == 0) {
                         onRecoverByAnswer(answer, newPassword, callback)

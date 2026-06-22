@@ -220,9 +220,4 @@ class SecurityPreferences(private val context: Context) {
             it[Keys.LAST_FAILED_AT] = 0L
         }
     }
-
-    /** Wipes everything — used when the user resets the app from the recovery screen failure. */
-    suspend fun clearAll() {
-        context.dataStore.edit { it.clear() }
-    }
 }

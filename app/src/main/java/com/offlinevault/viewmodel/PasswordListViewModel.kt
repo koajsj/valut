@@ -76,13 +76,6 @@ class PasswordListViewModel(
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun jiazai(kuId: String) {
-        mimakuId.value = kuId
-        viewModelScope.launch {
-            _mimakuMingcheng.value = mimakuCangku.getById(kuId)?.name ?: "密码库"
-        }
-    }
-
     /** Opens the single default vault, creating it on first run. Used as the app's home. */
     fun jiazaiMoren() {
         viewModelScope.launch {
@@ -136,10 +129,5 @@ class PasswordListViewModel(
 
     fun qiehuanBiaoqian(biaoqian: String) {
         biaoqianGuolv.value = if (biaoqianGuolv.value == biaoqian) null else biaoqian
-    }
-
-    fun qingchuGuolv() {
-        chaxun.value = ""
-        biaoqianGuolv.value = null
     }
 }
