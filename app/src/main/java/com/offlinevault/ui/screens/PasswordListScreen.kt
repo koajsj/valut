@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
@@ -98,10 +100,8 @@ fun PasswordListScreen(
     fun importToast(r: ImportResult) =
         toast("已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
 
-    val openFileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun handlePickedUri(uri: Uri?) {
+        if (uri == null) return
         scope.launch {
             val text = FileIo.readText(context, uri)
             if (text == null) {
@@ -120,11 +120,29 @@ fun PasswordListScreen(
         }
     }
 
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> handlePickedUri(uri) }
+
+    // Fallback for devices whose system has no ACTION_OPEN_DOCUMENT handler.
+    val getContentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> handlePickedUri(uri) }
+
     fun launchImport() {
         LockGuard.suppressNextBackground = true
-        openFileLauncher.launch(
-            arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
-        )
+        try {
+            openDocumentLauncher.launch(
+                arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
+            )
+        } catch (e: ActivityNotFoundException) {
+            try {
+                getContentLauncher.launch("*/*")
+            } catch (e2: ActivityNotFoundException) {
+                LockGuard.suppressNextBackground = false
+                toast("未找到可用的文件管理器，无法选择文件")
+            }
+        }
     }
 
     Scaffold(

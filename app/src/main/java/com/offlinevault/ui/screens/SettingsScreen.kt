@@ -1,5 +1,6 @@
 package com.offlinevault.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -121,10 +122,8 @@ fun SettingsScreen(
         pendingCsvVaultId = null
     }
 
-    val openFileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun handlePickedUri(uri: Uri?) {
+        if (uri == null) return
         scope.launch {
             val text = FileIo.readText(context, uri)
             if (text == null) {
@@ -143,6 +142,31 @@ fun SettingsScreen(
             } else {
                 pendingImportJson = text
                 importPasswordPrompt = true
+            }
+        }
+    }
+
+    val openFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> handlePickedUri(uri) }
+
+    // Fallback for devices whose system has no ACTION_OPEN_DOCUMENT handler.
+    val getContentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> handlePickedUri(uri) }
+
+    fun launchImport() {
+        com.offlinevault.security.LockGuard.suppressNextBackground = true
+        try {
+            openFileLauncher.launch(
+                arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
+            )
+        } catch (e: android.content.ActivityNotFoundException) {
+            try {
+                getContentLauncher.launch("*/*")
+            } catch (e2: android.content.ActivityNotFoundException) {
+                com.offlinevault.security.LockGuard.suppressNextBackground = false
+                toast("未找到可用的文件管理器，无法选择文件")
             }
         }
     }
@@ -219,10 +243,7 @@ fun SettingsScreen(
                     SettingDivider()
                     ClickSetting("导出表格（CSV）", "明文格式，请谨慎使用") { showCsvWarning = true }
                     SettingDivider()
-                    ClickSetting("导入（加密备份 / 浏览器 CSV）", "") {
-                        com.offlinevault.security.LockGuard.suppressNextBackground = true
-                        openFileLauncher.launch(arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*"))
-                    }
+                    ClickSetting("导入（加密备份 / 浏览器 CSV）", "") { launchImport() }
                 }
             }
 
