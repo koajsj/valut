@@ -1,6 +1,7 @@
 package com.offlinevault.ui.screens
 
 import android.content.ActivityNotFoundException
+import android.view.autofill.AutofillManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +28,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -63,6 +65,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.data.model.PasswordEntity
@@ -97,6 +101,19 @@ fun PasswordListScreen(
 
     var importJsonPasswordPrompt by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
+
+    // Autofill enablement nudge: shown until the user enables Offline Vault as the system service.
+    val autofillManager = remember { context.getSystemService(AutofillManager::class.java) }
+    val autofillSupported = remember {
+        runCatching { autofillManager?.isAutofillSupported == true }.getOrDefault(false)
+    }
+    var autofillEnabled by remember {
+        mutableStateOf(runCatching { autofillManager?.hasEnabledAutofillServices() == true }.getOrDefault(false))
+    }
+    var autofillBannerDismissed by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        autofillEnabled = runCatching { autofillManager?.hasEnabledAutofillServices() == true }.getOrDefault(false)
+    }
 
     fun toast(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     fun importToast(r: ImportResult) =
@@ -187,6 +204,31 @@ fun PasswordListScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
+            if (autofillSupported && !autofillEnabled && !autofillBannerDismissed) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("开启自动填充", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "在其他应用和网页中自动填充、保存账号，需先在系统设置中启用。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = onOpenSettings) { Text("去设置") }
+                    IconButton(onClick = { autofillBannerDismissed = true }) {
+                        Icon(Icons.Filled.Close, contentDescription = "忽略", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
             OutlinedTextField(
                 value = query,
                 onValueChange = viewModel::shezhiChaxun,

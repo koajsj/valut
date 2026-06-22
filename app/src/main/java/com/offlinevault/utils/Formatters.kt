@@ -7,6 +7,10 @@ import java.util.Locale
 object Formatters {
 
     private val dateFormat = SimpleDateFormat("yyyy年M月d日 HH:mm", Locale.CHINA)
+    private val fileStampFormat = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US)
+
+    /** Filename-safe timestamp (e.g. 20260622-1530) so repeated exports don't overwrite each other. */
+    fun fileStamp(): String = fileStampFormat.format(Date())
 
     fun relativeTime(timestamp: Long): String {
         val now = System.currentTimeMillis()

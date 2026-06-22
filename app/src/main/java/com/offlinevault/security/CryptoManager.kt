@@ -27,10 +27,12 @@ object CryptoManager {
     const val SALT_LENGTH = 16
 
     /**
-     * PBKDF2 iteration count for newly created material. Aligned with the OWASP 2024 recommendation
-     * for PBKDF2-HMAC-SHA256. Run on a background dispatcher so the one-off cost is invisible.
+     * PBKDF2 iteration count for newly created material. 300k keeps unlock responsive on older
+     * devices while staying comfortably above the OWASP minimum for PBKDF2-HMAC-SHA256. The count
+     * is stored per vault, so it can be raised later without locking existing vaults out. Always run
+     * on a background dispatcher so the one-off cost stays off the main thread.
      */
-    const val DEFAULT_PBKDF2_ITERATIONS = 600_000
+    const val DEFAULT_PBKDF2_ITERATIONS = 300_000
 
     /**
      * Iteration count used by vaults / backups created before the count was persisted. Material that

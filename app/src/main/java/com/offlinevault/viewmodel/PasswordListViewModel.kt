@@ -10,19 +10,21 @@ import com.offlinevault.data.repository.VaultRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class PasswordListViewModel(
     private val mimaCangku: PasswordRepository,
     private val mimakuCangku: VaultRepository,
@@ -42,8 +44,11 @@ class PasswordListViewModel(
     private val _cuowuXinxi = MutableStateFlow<String?>(null)
     val cuowuXinxi: StateFlow<String?> = _cuowuXinxi.asStateFlow()
 
+    // Debounce only the typed query (blank emits immediately so the initial load isn't delayed).
+    private val chaxunFangdou = chaxun.debounce { if (it.isBlank()) 0L else 200L }
+
     val tiaomu: StateFlow<List<PasswordEntity>> =
-        combine(mimakuId, chaxun, biaoqianGuolv) { kuId, cxWen, biaoqian -> Triple(kuId, cxWen, biaoqian) }
+        combine(mimakuId, chaxunFangdou, biaoqianGuolv) { kuId, cxWen, biaoqian -> Triple(kuId, cxWen, biaoqian) }
             .flatMapLatest { (kuId, cxWen, biaoqian) ->
                 when {
                     kuId.isEmpty() -> kotlinx.coroutines.flow.flowOf(emptyList())

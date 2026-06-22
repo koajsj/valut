@@ -56,6 +56,7 @@ import com.offlinevault.ui.components.SectionCard
 import com.offlinevault.ui.components.VaultTextField
 import com.offlinevault.utils.FileIo
 import com.offlinevault.utils.FilePickerCompat
+import com.offlinevault.utils.Formatters
 import com.offlinevault.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
 
@@ -536,7 +537,7 @@ fun SettingsScreen(
                     }
                     pendingJsonBackup = json
                     com.offlinevault.security.LockGuard.suppressNextBackground = true
-                    saveJsonLauncher.launch("offline-vault-backup.json")
+                    saveJsonLauncher.launch("offline-vault-backup-${Formatters.fileStamp()}.json")
                 }
             }
         )
@@ -557,7 +558,7 @@ fun SettingsScreen(
                     } else if (vaults.size == 1) {
                         pendingCsvVaultId = vaults.first().id
                         com.offlinevault.security.LockGuard.suppressNextBackground = true
-                        saveCsvLauncher.launch("offline-vault-export.csv")
+                        saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
                     } else csvTargetPick = true
                 }) { Text("我已了解，继续导出", color = MaterialTheme.colorScheme.error) }
             },
@@ -580,7 +581,7 @@ fun SettingsScreen(
                 } else {
                     pendingCsvVaultId = id
                     com.offlinevault.security.LockGuard.suppressNextBackground = true
-                    saveCsvLauncher.launch("offline-vault-export.csv")
+                    saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
                 }
             },
             onDismiss = { csvTargetPick = false; pendingImportCsv = null }
