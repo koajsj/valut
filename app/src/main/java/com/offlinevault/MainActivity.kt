@@ -2,6 +2,7 @@ package com.offlinevault
 
 import android.graphics.Color
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -67,6 +68,12 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        // Privacy hardening: exclude the whole app from the autofill framework so no third-party
+        // autofill service or keyboard can capture the master password / stored credentials typed
+        // here. (Our own autofill service only reads OTHER apps, so this does not affect it.)
+        window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+
         // Use dark system-bar icons on the app's white background.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),

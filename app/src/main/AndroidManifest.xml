@@ -6,9 +6,14 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!--
-      NOTE: There is intentionally NO android.permission.INTERNET declared.
-      This app is fully offline and must never access the network.
+      This app is fully offline and must never reach the network. We not only avoid declaring these
+      permissions, we actively STRIP them from the merged manifest with tools:node="remove" so that
+      NO transitive dependency can sneak network/exfiltration access in. With INTERNET absent the OS
+      makes it physically impossible for the app (or any bundled code) to upload the user's data.
     -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove" />
 
     <application
         android:name=".OfflineVaultApp"

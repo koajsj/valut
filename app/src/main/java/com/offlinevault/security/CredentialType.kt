@@ -15,7 +15,7 @@ enum class CredentialType(
 ) {
     PIN4("pin4", true, 4, 4, "4位数字密码", "数字密码"),
     PIN6("pin6", true, 6, 6, "6位数字密码", "数字密码"),
-    PASSWORD("password", false, 8, 128, "密码", "密码");
+    PASSWORD("password", false, 8, 128, "混合密码", "密码");
 
     /** True when [value] satisfies this credential's length / character rules. */
     fun isValid(value: String): Boolean =

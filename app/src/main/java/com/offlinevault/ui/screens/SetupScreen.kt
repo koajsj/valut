@@ -151,7 +151,7 @@ fun SetupScreen(
                             label = when (type) {
                                 CredentialType.PIN4 -> "4位数字密码"
                                 CredentialType.PIN6 -> "6位数字密码"
-                                CredentialType.PASSWORD -> "密码"
+                                CredentialType.PASSWORD -> "混合密码"
                             },
                             selected = credType == type,
                             modifier = Modifier.weight(1f),
