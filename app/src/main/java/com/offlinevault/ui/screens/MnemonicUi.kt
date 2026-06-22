@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,6 +26,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,12 +52,14 @@ fun MnemonicConfirmationContent(
     var error by remember(words) { mutableStateOf<String?>(null) }
 
     Column(modifier = modifier) {
+        MnemonicWarningCallout()
+        Spacer(Modifier.height(16.dp))
         SectionCard {
             Column {
                 Text("请离线抄写以下 12 个助记词", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "仅展示这一次。它只能在忘记主密码且忘记密保答案时，用于恢复数据加密密钥并重设主密码。",
+                    "仅展示这一次，关闭后无法再次查看。它只能在忘记主密码且忘记密保答案时，用于恢复数据加密密钥并重设主密码。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -148,6 +155,43 @@ fun MasterPasswordDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
+}
+
+@Composable
+private fun MnemonicWarningCallout() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(14.dp)
+            )
+            .padding(14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            Icons.Filled.WarningAmber,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onErrorContainer
+        )
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                "请妥善保存助记词",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "• 请用纸笔抄写并存放在安全的地方，不要保存在联网或他人可见的位置\n" +
+                    "• 任何人拿到这 12 个词，都能重置主密码并访问你的全部密码\n" +
+                    "• 本页已禁止截屏；关闭后将无法再次查看，丢失后无法找回",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+    }
 }
 
 @Composable
