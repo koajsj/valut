@@ -109,6 +109,7 @@ fun PasswordListScreen(
     }
 
     fun handlePickedUri(uri: Uri?) {
+        LockGuard.suppressNextBackground = false
         if (uri == null) return
         scope.launch {
             val text = FileIo.readText(context, uri)

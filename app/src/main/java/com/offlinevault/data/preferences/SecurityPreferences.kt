@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.offlinevault.security.CryptoManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -46,11 +47,11 @@ class SecurityPreferences(private val context: Context) {
 
     // ---- Security material -------------------------------------------------
 
-    suspend fun isInitialized(): Boolean =
-        context.dataStore.data.first()[Keys.MASTER_WRAPPED_DEK] != null
-
     val initializedFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[Keys.MASTER_WRAPPED_DEK] != null }
+        context.dataStore.data
+            .map { it[Keys.MASTER_WRAPPED_DEK] != null }
+            // Fail closed: a preferences read error must not expose setup over an existing vault.
+            .catch { emit(true) }
 
     suspend fun saveVaultMaterial(
         masterSalt: String,
@@ -106,28 +107,19 @@ class SecurityPreferences(private val context: Context) {
         context.dataStore.data.first()[Keys.RECOVERY_ITERATIONS] ?: CryptoManager.LEGACY_PBKDF2_ITERATIONS
 
     val credentialTypeFlow: Flow<String> =
-        context.dataStore.data.map { it[Keys.CREDENTIAL_TYPE] ?: "pin6" }
-
-    suspend fun credentialType(): String =
-        context.dataStore.data.first()[Keys.CREDENTIAL_TYPE] ?: "pin6"
+        context.dataStore.data.map { it[Keys.CREDENTIAL_TYPE] ?: "pin6" }.catch { emit("pin6") }
 
     suspend fun setCredentialType(value: String) {
         context.dataStore.edit { it[Keys.CREDENTIAL_TYPE] = value }
     }
 
     val recoveryQuestionFlow: Flow<String> =
-        context.dataStore.data.map { it[Keys.RECOVERY_QUESTION] ?: "" }
-
-    suspend fun recoveryQuestion(): String =
-        context.dataStore.data.first()[Keys.RECOVERY_QUESTION] ?: ""
+        context.dataStore.data.map { it[Keys.RECOVERY_QUESTION] ?: "" }.catch { emit("") }
 
     // ---- Biometric ---------------------------------------------------------
 
     val biometricEnabledFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[Keys.BIOMETRIC_ENABLED] ?: false }
-
-    suspend fun isBiometricEnabled(): Boolean =
-        context.dataStore.data.first()[Keys.BIOMETRIC_ENABLED] ?: false
+        context.dataStore.data.map { it[Keys.BIOMETRIC_ENABLED] ?: false }.catch { emit(false) }
 
     suspend fun setBiometric(enabled: Boolean, wrappedDek: String?) {
         context.dataStore.edit {
@@ -143,7 +135,7 @@ class SecurityPreferences(private val context: Context) {
     // ---- User settings -----------------------------------------------------
 
     val autoLockMinutesFlow: Flow<Int> =
-        context.dataStore.data.map { it[Keys.AUTO_LOCK_MINUTES] ?: 1 }
+        context.dataStore.data.map { it[Keys.AUTO_LOCK_MINUTES] ?: 1 }.catch { emit(1) }
 
     suspend fun setAutoLockMinutes(value: Int) {
         context.dataStore.edit { it[Keys.AUTO_LOCK_MINUTES] = value }
@@ -156,14 +148,14 @@ class SecurityPreferences(private val context: Context) {
         context.dataStore.data.first()[Keys.SCREENSHOT_BLOCKED] ?: true
 
     val screenshotBlockedFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[Keys.SCREENSHOT_BLOCKED] ?: true }
+        context.dataStore.data.map { it[Keys.SCREENSHOT_BLOCKED] ?: true }.catch { emit(true) }
 
     suspend fun setScreenshotBlocked(value: Boolean) {
         context.dataStore.edit { it[Keys.SCREENSHOT_BLOCKED] = value }
     }
 
     val clipboardClearSecondsFlow: Flow<Int> =
-        context.dataStore.data.map { it[Keys.CLIPBOARD_CLEAR_SECONDS] ?: 10 }
+        context.dataStore.data.map { it[Keys.CLIPBOARD_CLEAR_SECONDS] ?: 10 }.catch { emit(10) }
 
     suspend fun setClipboardClearSeconds(value: Int) {
         context.dataStore.edit { it[Keys.CLIPBOARD_CLEAR_SECONDS] = value }

@@ -9,6 +9,8 @@ import com.offlinevault.security.SessionManager
 import com.offlinevault.security.VaultDataCorruptionException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import java.util.UUID
 
 /** A fully decrypted credential, used only in-memory by the UI while unlocked. */
@@ -108,17 +110,21 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         return entity.id
     }
 
-    suspend fun delete(entity: PasswordEntity) = passwordDao.delete(entity)
-
     suspend fun deleteById(id: String) {
         passwordDao.getById(id)?.let { passwordDao.delete(it) }
     }
 
     suspend fun allDecrypted(): List<DecryptedPassword> =
-        passwordDao.getAllOnce().map { decrypt(it) }
+        passwordDao.getAllOnce().map {
+            coroutineContext.ensureActive()
+            decrypt(it)
+        }
 
     suspend fun decryptedForVault(vaultId: String): List<DecryptedPassword> =
-        passwordDao.getPasswordsByVaultIdOnce(vaultId).map { decrypt(it) }
+        passwordDao.getPasswordsByVaultIdOnce(vaultId).map {
+            coroutineContext.ensureActive()
+            decrypt(it)
+        }
 
     /**
      * Decrypts only the (cheap) URL metadata of every row, keeps the ones whose URL satisfies
@@ -139,6 +145,8 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         val key = SessionManager.requireKey()
         val now = System.currentTimeMillis()
         val entities = items.map { item ->
+            coroutineContext.ensureActive()
+            SessionManager.requireKey()
             PasswordEntity(
                 id = UUID.randomUUID().toString(),
                 vaultId = vaultId,

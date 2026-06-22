@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
 import javax.crypto.Cipher
 
 class SettingsViewModel(
@@ -27,6 +28,14 @@ class SettingsViewModel(
     private val backupManager: BackupManager,
     private val vaultRepository: VaultRepository
 ) : ViewModel() {
+
+    private var changeMasterJob: Job? = null
+    private var changeRecoveryJob: Job? = null
+
+    data class ExportPayload(
+        val content: String? = null,
+        val errorMessage: String? = null
+    )
 
     val biometricEnabled: StateFlow<Boolean> =
         prefs.biometricEnabledFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -58,30 +67,52 @@ class SettingsViewModel(
 
     // ---- Settings toggles --------------------------------------------------
 
-    fun setAutoLockMinutes(value: Int) = viewModelScope.launch { prefs.setAutoLockMinutes(value) }
-    fun setScreenshotBlocked(value: Boolean) = viewModelScope.launch { prefs.setScreenshotBlocked(value) }
-    fun setClipboardSeconds(value: Int) = viewModelScope.launch { prefs.setClipboardClearSeconds(value) }
+    fun setAutoLockMinutes(value: Int, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(runAction { prefs.setAutoLockMinutes(value) })
+    }
+
+    fun setScreenshotBlocked(value: Boolean, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(runAction { prefs.setScreenshotBlocked(value) })
+    }
+
+    fun setClipboardSeconds(value: Int, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(runAction { prefs.setClipboardClearSeconds(value) })
+    }
 
     // ---- Master password / recovery ---------------------------------------
 
     fun changeMasterPassword(old: String, new: String, onResult: (Boolean, String?) -> Unit) {
-        viewModelScope.launch {
-            when (val result = withContext(Dispatchers.Default) { keyManager.changeMasterPassword(old, new) }) {
-                is UnlockResult.Success -> onResult(true, null)
-                is UnlockResult.WrongCredential -> onResult(false, "当前密码不正确")
-                is UnlockResult.Delayed -> onResult(
-                    false,
-                    "失败次数过多，请在 ${result.secondsRemaining} 秒后重试"
-                )
-                else -> onResult(false, "无法修改密码")
+        if (changeMasterJob?.isActive == true) return
+        changeMasterJob = viewModelScope.launch {
+            try {
+                when (val result = withContext(Dispatchers.Default) { keyManager.changeMasterPassword(old, new) }) {
+                    is UnlockResult.Success -> onResult(true, null)
+                    is UnlockResult.WrongCredential -> onResult(false, "当前密码不正确")
+                    is UnlockResult.Delayed -> onResult(
+                        false,
+                        "失败次数过多，请在 ${result.secondsRemaining} 秒后重试"
+                    )
+                    is UnlockResult.Error -> onResult(false, result.message)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "无法修改密码")
             }
         }
     }
 
-    fun changeRecovery(question: String, answer: String, onDone: () -> Unit) {
-        viewModelScope.launch {
-            withContext(Dispatchers.Default) { keyManager.changeRecovery(question.trim(), answer) }
-            onDone()
+    fun changeRecovery(question: String, answer: String, onResult: (Boolean, String?) -> Unit) {
+        if (changeRecoveryJob?.isActive == true) return
+        changeRecoveryJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.Default) { keyManager.changeRecovery(question.trim(), answer) }
+                onResult(true, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "无法更新安全问题")
+            }
         }
     }
 
@@ -98,43 +129,55 @@ class SettingsViewModel(
         onReady(cipher)
     }
 
-    fun finishEnableBiometric(cipher: Cipher, onDone: () -> Unit) {
+    fun finishEnableBiometric(cipher: Cipher, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
-            try {
+            val success = try {
                 keyManager.storeBiometricWrappedDek(cipher)
-            } finally {
-                onDone()
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
             }
+            onDone(success)
         }
     }
 
-    fun disableBiometric() {
-        viewModelScope.launch { keyManager.disableBiometric() }
+    fun disableBiometric(onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(runAction { keyManager.disableBiometric() })
+        }
     }
 
     // ---- Import / export ---------------------------------------------------
 
-    fun buildEncryptedJsonBackup(password: String, onResult: (String) -> Unit) {
+    fun buildEncryptedJsonBackup(password: String, onResult: (ExportPayload) -> Unit) {
         viewModelScope.launch {
             val result = try {
-                withContext(Dispatchers.Default) { backupManager.buildEncryptedJsonBackup(password) }
+                ExportPayload(
+                    content = withContext(Dispatchers.Default) {
+                        backupManager.buildEncryptedJsonBackup(password)
+                    }
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                return@launch
+                ExportPayload(errorMessage = "无法创建加密备份")
             }
             onResult(result)
         }
     }
 
-    fun buildCsv(vaultId: String, onResult: (String) -> Unit) {
+    fun buildCsv(vaultId: String, onResult: (ExportPayload) -> Unit) {
         viewModelScope.launch {
             val result = try {
-                withContext(Dispatchers.Default) { backupManager.buildCsvForVault(vaultId) }
+                ExportPayload(
+                    content = withContext(Dispatchers.Default) { backupManager.buildCsvForVault(vaultId) }
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                return@launch
+                ExportPayload(errorMessage = "无法导出 CSV")
             }
             onResult(result)
         }
@@ -164,5 +207,14 @@ class SettingsViewModel(
             }
             onResult(result)
         }
+    }
+
+    private suspend fun runAction(block: suspend () -> Unit): Boolean = try {
+        block()
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        false
     }
 }

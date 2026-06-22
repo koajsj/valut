@@ -31,6 +31,7 @@ object CsvUtils {
             }
             i++
         }
+        require(!inQuotes) { "CSV contains an unterminated quoted field" }
         // flush trailing field/row
         if (field.isNotEmpty() || row.isNotEmpty()) {
             row.add(field.toString())

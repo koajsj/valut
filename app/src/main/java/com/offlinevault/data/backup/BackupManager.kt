@@ -6,6 +6,7 @@ import com.offlinevault.data.repository.DecryptedPassword
 import com.offlinevault.data.repository.PasswordRepository
 import com.offlinevault.data.repository.VaultRepository
 import com.offlinevault.security.CryptoManager
+import kotlinx.coroutines.CancellationException
 
 /**
  * Handles JSON (encrypted) and CSV import/export. Everything runs locally; nothing is uploaded.
@@ -17,6 +18,7 @@ class BackupManager(
     private companion object {
         const val MAX_IMPORT_VAULTS = 1_000
         const val MAX_IMPORT_ITEMS = 50_000
+        const val MAX_CSV_ROWS = MAX_IMPORT_ITEMS + 1
     }
 
     private val gson = Gson()
@@ -50,8 +52,10 @@ class BackupManager(
             val wrapper = gson.fromJson(content, EncryptedBackup::class.java)
             if (wrapper != null && wrapper.format == "offline-vault-backup" && wrapper.encrypted) {
                 val salt = CryptoManager.decode(wrapper.salt)
-                val iterations = if (wrapper.iterations > 0) wrapper.iterations
-                else CryptoManager.LEGACY_PBKDF2_ITERATIONS
+                val iterations = CryptoManager.requireValidIterations(
+                    if (wrapper.iterations > 0) wrapper.iterations
+                    else CryptoManager.LEGACY_PBKDF2_ITERATIONS
+                )
                 val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
                 val plain = String(CryptoManager.decrypt(key, CryptoManager.decode(wrapper.data)), Charsets.UTF_8)
                 gson.fromJson(plain, BackupData::class.java)
@@ -59,6 +63,8 @@ class BackupManager(
                 // Fall back to a plain (unencrypted) BackupData JSON.
                 gson.fromJson(content, BackupData::class.java)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return ImportResult(0, 0, 0, listOf("无法读取备份：密码错误或文件已损坏"))
         } ?: return ImportResult(0, 0, 0, listOf("备份为空或格式无效"))
@@ -79,6 +85,8 @@ class BackupManager(
                     vaultRepository.insertImported(VaultEntity(id = v.id, name = v.name, icon = v.icon))
                     existingIds.add(v.id)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errors.add("密码库“${v.name}”导入失败：${e.message}")
             }
@@ -101,12 +109,16 @@ class BackupManager(
                     if (key in existing) { skipped++; continue }
                     existing.add(key)
                     toInsert.add(item.toDecrypted())
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     failed++
                 }
             }
             try {
                 imported += passwordRepository.importDecrypted(vaultId, toInsert)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 failed += toInsert.size
                 errors.add("部分项目导入失败：${e.message}")
@@ -152,6 +164,9 @@ class BackupManager(
     suspend fun importChromeCsv(content: String, targetVaultId: String): ImportResult {
         val rows = CsvUtils.parse(content)
         if (rows.isEmpty()) return ImportResult(0, 0, 0, listOf("CSV 文件为空"))
+        if (rows.size > MAX_CSV_ROWS) {
+            return ImportResult(0, 0, 0, listOf("CSV 中的项目数量过多"))
+        }
 
         // Ensure a valid destination vault exists; create one if the target is blank or was deleted.
         val vaultId = if (targetVaultId.isNotBlank() && vaultRepository.getById(targetVaultId) != null) {
@@ -200,6 +215,8 @@ class BackupManager(
                 if (key in existing) { skipped++; continue }
                 existing.add(key)
                 toInsert.add(item)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 failed++
                 errors.add("已跳过一行：${e.message}")

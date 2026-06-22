@@ -1,6 +1,7 @@
 package com.offlinevault.security
 
 import com.offlinevault.data.preferences.SecurityPreferences
+import kotlinx.coroutines.CancellationException
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -86,9 +87,10 @@ class KeyManager(private val prefs: SecurityPreferences) {
         } catch (e: AEADBadTagException) {
             prefs.recordFailure()
             UnlockResult.WrongCredential
-        } catch (e: Exception) {
-            prefs.recordFailure()
-            UnlockResult.WrongCredential
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            UnlockResult.Error("无法读取加密密钥，数据可能已损坏")
         }
     }
 
@@ -107,9 +109,13 @@ class KeyManager(private val prefs: SecurityPreferences) {
                 prefs.recoveryIterations()
             )
             CryptoManager.decrypt(recoveryKey, CryptoManager.decode(wrappedB64))
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: AEADBadTagException) {
             prefs.recordFailure()
             return UnlockResult.WrongCredential
+        } catch (_: Exception) {
+            return UnlockResult.Error("无法读取恢复密钥，数据可能已损坏")
         }
 
         // Re-wrap the recovered DEK under a fresh master password.
@@ -135,9 +141,13 @@ class KeyManager(private val prefs: SecurityPreferences) {
                 prefs.masterIterations()
             )
             CryptoManager.decrypt(oldKey, CryptoManager.decode(wrappedB64))
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: AEADBadTagException) {
             prefs.recordFailure()
             return UnlockResult.WrongCredential
+        } catch (_: Exception) {
+            return UnlockResult.Error("无法读取加密密钥，数据可能已损坏")
         }
         rewrapMaster(SecretKeySpec(dekBytes, "AES"), newPassword)
         prefs.resetFailures()
@@ -206,6 +216,8 @@ class KeyManager(private val prefs: SecurityPreferences) {
             prefs.resetFailures()
             SessionManager.unlock(SecretKeySpec(dekBytes, "AES"))
             UnlockResult.Success
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             UnlockResult.Error("指纹解锁失败")
         }

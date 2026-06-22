@@ -39,6 +39,4 @@ interface PasswordDao {
     @Query("SELECT * FROM passwords")
     suspend fun getAllOnce(): List<PasswordEntity>
 
-    @Query("DELETE FROM passwords WHERE vaultId = :vaultId")
-    suspend fun deleteByVault(vaultId: String)
 }

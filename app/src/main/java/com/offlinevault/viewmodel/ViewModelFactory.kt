@@ -36,9 +36,6 @@ object ViewModelFactory {
                 app().container.vaultRepository
             )
         }
-        initializer {
-            GeneratorViewModel()
-        }
     }
 
     private fun CreationExtras.app(): OfflineVaultApp =

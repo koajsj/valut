@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PasswordDetailViewModel(
@@ -24,6 +26,7 @@ class PasswordDetailViewModel(
     private val id = MutableStateFlow<String?>(null)
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+    private var deleteJob: Job? = null
 
     /**
      * Observes the underlying row so the screen always reflects the latest edit, and collapses to
@@ -41,7 +44,8 @@ class PasswordDetailViewModel(
                         null
                     }
                 }
-            }.catch {
+            }.catch { error ->
+                if (error is CancellationException) throw error
                 _error.value = "这条凭据已损坏，无法解密。"
                 emit(null)
             }
@@ -52,11 +56,18 @@ class PasswordDetailViewModel(
         id.value = passwordId
     }
 
-    fun delete(onDone: () -> Unit) {
-        val pid = id.value ?: return onDone()
-        viewModelScope.launch {
-            passwordRepository.deleteById(pid)
-            onDone()
+    fun delete(onResult: (Boolean, String?) -> Unit) {
+        if (deleteJob?.isActive == true) return
+        val pid = id.value ?: return onResult(true, null)
+        deleteJob = viewModelScope.launch {
+            try {
+                passwordRepository.deleteById(pid)
+                onResult(true, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "删除失败，请重新解锁后重试")
+            }
         }
     }
 }

@@ -56,6 +56,7 @@ import com.offlinevault.viewmodel.PasswordEditViewModel
 import com.offlinevault.viewmodel.PasswordListViewModel
 import com.offlinevault.viewmodel.SettingsViewModel
 import com.offlinevault.viewmodel.ViewModelFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -75,9 +76,15 @@ class MainActivity : FragmentActivity() {
         // Apply / clear FLAG_SECURE reactively from the screenshot-block setting.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                prefs.screenshotBlockedFlow.collect { blocked ->
-                    if (blocked) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                try {
+                    prefs.screenshotBlockedFlow.collect { blocked ->
+                        if (blocked) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 }
             }
         }
@@ -105,7 +112,13 @@ class MainActivity : FragmentActivity() {
         if (LockGuard.suppressNextBackground) return
         backgroundedAt = System.currentTimeMillis()
         lifecycleScope.launch {
-            if (prefs.autoLockMinutesValue() == 0) SessionManager.lock()
+            try {
+                if (prefs.autoLockMinutesValue() == 0) SessionManager.lock()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                SessionManager.lock()
+            }
         }
     }
 
@@ -117,10 +130,16 @@ class MainActivity : FragmentActivity() {
         }
         if (!SessionManager.isUnlocked || backgroundedAt == 0L) return
         lifecycleScope.launch {
-            val minutes = prefs.autoLockMinutesValue()
-            if (minutes > 0) {
-                val elapsed = System.currentTimeMillis() - backgroundedAt
-                if (elapsed >= minutes * 60_000L) SessionManager.lock()
+            try {
+                val minutes = prefs.autoLockMinutesValue()
+                if (minutes > 0) {
+                    val elapsed = System.currentTimeMillis() - backgroundedAt
+                    if (elapsed >= minutes * 60_000L) SessionManager.lock()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                SessionManager.lock()
             }
         }
     }
@@ -163,9 +182,9 @@ private fun AppRoot() {
         }
     }
 
-    fun enableBiometric(onDone: () -> Unit) {
+    fun enableBiometric(onDone: (Boolean) -> Unit) {
         settingsVm.prepareEnableBiometricCipher { cipher ->
-            if (cipher == null) { onDone(); return@prepareEnableBiometricCipher }
+            if (cipher == null) { onDone(false); return@prepareEnableBiometricCipher }
             LockGuard.suppressNextBackground = true
             BiometricHelper.authenticate(
                 activity = activity,
@@ -173,8 +192,8 @@ private fun AppRoot() {
                 subtitle = "验证后启用指纹解锁",
                 cipher = cipher,
                 onSuccess = { LockGuard.suppressNextBackground = false; settingsVm.finishEnableBiometric(it, onDone) },
-                onError = { LockGuard.suppressNextBackground = false; onDone() },
-                onCancel = { LockGuard.suppressNextBackground = false; onDone() }
+                onError = { LockGuard.suppressNextBackground = false; onDone(false) },
+                onCancel = { LockGuard.suppressNextBackground = false; onDone(false) }
             )
         }
     }
@@ -242,7 +261,7 @@ private fun MainNavHost(
     clipboardSeconds: Int,
     biometricAvailable: Boolean,
     settingsViewModel: SettingsViewModel,
-    onEnableBiometric: (onDone: () -> Unit) -> Unit
+    onEnableBiometric: (onDone: (Boolean) -> Unit) -> Unit
 ) {
     val navController = rememberNavController()
 

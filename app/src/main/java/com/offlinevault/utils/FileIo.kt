@@ -3,6 +3,7 @@ package com.offlinevault.utils
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -12,7 +13,10 @@ object FileIo {
 
     suspend fun readText(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
         try {
-            context.contentResolver.openInputStream(uri)?.use(::readUtf8Limited)
+            val input = context.contentResolver.openInputStream(uri) ?: return@withContext null
+            input.use { readUtf8Limited(it) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             null
         }
@@ -31,6 +35,8 @@ object FileIo {
                     }
                     true
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 false
             }

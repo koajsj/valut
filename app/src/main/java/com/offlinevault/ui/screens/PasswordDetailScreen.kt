@@ -129,8 +129,11 @@ fun PasswordDetailScreen(
                         value = current.username.ifEmpty { "—" },
                         onCopy = if (current.username.isNotEmpty()) {
                             {
-                                ClipboardHelper.copyPlain(context, "用户名", current.username)
-                                toast("用户名已复制")
+                                ClipboardHelper.copySensitive(context, "用户名", current.username, clipboardSeconds)
+                                toast(
+                                    if (clipboardSeconds > 0) "用户名已复制，将在 ${clipboardSeconds} 秒后清除"
+                                    else "用户名已复制"
+                                )
                             }
                         } else null
                     )
@@ -160,7 +163,10 @@ fun PasswordDetailScreen(
                         }
                         IconButton(onClick = {
                             ClipboardHelper.copySensitive(context, "密码", current.password, clipboardSeconds)
-                            toast("密码已复制，将在 ${clipboardSeconds} 秒后清除")
+                            toast(
+                                if (clipboardSeconds > 0) "密码已复制，将在 ${clipboardSeconds} 秒后清除"
+                                else "密码已复制"
+                            )
                         }) {
                             Icon(Icons.Filled.ContentCopy, contentDescription = "复制", tint = MaterialTheme.colorScheme.primary)
                         }
@@ -232,7 +238,10 @@ fun PasswordDetailScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
-                    viewModel.delete(onBack)
+                    viewModel.delete { ok, message ->
+                        if (ok) onBack()
+                        else if (!message.isNullOrBlank()) toast(message)
+                    }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } }

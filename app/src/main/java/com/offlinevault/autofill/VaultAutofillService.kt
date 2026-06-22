@@ -1,7 +1,6 @@
 package com.offlinevault.autofill
 
 import android.app.assist.AssistStructure
-import android.os.Build
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
 import android.service.autofill.Dataset
@@ -15,12 +14,12 @@ import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
-import androidx.annotation.RequiresApi
 import com.offlinevault.OfflineVaultApp
 import com.offlinevault.R
 import com.offlinevault.data.repository.DecryptedPassword
 import com.offlinevault.security.SessionManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -34,7 +33,6 @@ import kotlinx.coroutines.launch
  * When the vault is locked there is no key in memory, so no credentials can be offered; the user
  * must open Offline Vault and unlock first.
  */
-@RequiresApi(Build.VERSION_CODES.O)
 class VaultAutofillService : AutofillService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -93,9 +91,13 @@ class VaultAutofillService : AutofillService() {
     private suspend fun findMatches(parsed: ParsedFields): List<DecryptedPassword> {
         val domain = parsed.webDomain ?: return emptyList()
         val repo = (application as OfflineVaultApp).container.passwordRepository
-        return runCatching {
+        return try {
             repo.decryptedMatching { OriginMatcher.matches(it, domain) }
-        }.getOrDefault(emptyList()).take(8)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }.take(8)
     }
 
     override fun onDestroy() {

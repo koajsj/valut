@@ -1,5 +1,7 @@
 package com.offlinevault.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.offlinevault.BuildConfig
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.security.PasswordStrengthChecker
 import com.offlinevault.ui.components.PasswordVisualField
@@ -58,7 +61,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     biometricAvailable: Boolean,
     onBack: () -> Unit,
-    onEnableBiometric: (onDone: () -> Unit) -> Unit
+    onEnableBiometric: (onDone: (Boolean) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -98,6 +101,7 @@ fun SettingsScreen(
     val saveJsonLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
+        com.offlinevault.security.LockGuard.suppressNextBackground = false
         val json = pendingJsonBackup
         if (uri != null && json != null) {
             scope.launch {
@@ -111,9 +115,15 @@ fun SettingsScreen(
     val saveCsvLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
+        com.offlinevault.security.LockGuard.suppressNextBackground = false
         val vaultId = pendingCsvVaultId
         if (uri != null && vaultId != null) {
-            viewModel.buildCsv(vaultId) { csv ->
+            viewModel.buildCsv(vaultId) { result ->
+                val csv = result.content
+                if (csv == null) {
+                    result.errorMessage?.let(::toast)
+                    return@buildCsv
+                }
                 scope.launch {
                     val ok = FileIo.writeText(context, uri, csv)
                     toast(if (ok) "CSV 已导出（包含明文密码）" else "无法写入文件")
@@ -124,6 +134,7 @@ fun SettingsScreen(
     }
 
     fun handlePickedUri(uri: Uri?) {
+        com.offlinevault.security.LockGuard.suppressNextBackground = false
         if (uri == null) return
         scope.launch {
             val text = FileIo.readText(context, uri)
@@ -206,8 +217,15 @@ fun SettingsScreen(
                             subtitle = "使用生物识别解锁",
                             checked = biometricEnabled,
                             onChange = { enabled ->
-                                if (enabled) onEnableBiometric { toast("已启用指纹解锁") }
-                                else { viewModel.disableBiometric(); toast("已关闭指纹解锁") }
+                                if (enabled) {
+                                    onEnableBiometric { ok ->
+                                        toast(if (ok) "已启用指纹解锁" else "无法启用指纹解锁")
+                                    }
+                                } else {
+                                    viewModel.disableBiometric { ok ->
+                                        toast(if (ok) "已关闭指纹解锁" else "无法关闭指纹解锁")
+                                    }
+                                }
                             }
                         )
                         SettingDivider()
@@ -218,17 +236,22 @@ fun SettingsScreen(
                         else "已关闭，允许截屏",
                         checked = screenshotBlocked,
                         onChange = {
-                            viewModel.setScreenshotBlocked(it)
-                            toast(
-                                if (it) "已禁止截屏和录屏"
-                                else "警告：当前允许截屏"
-                            )
+                            viewModel.setScreenshotBlocked(it) { ok ->
+                                toast(
+                                    if (!ok) "设置失败"
+                                    else if (it) "已禁止截屏和录屏"
+                                    else "警告：当前允许截屏"
+                                )
+                            }
                         }
                     )
                     SettingDivider()
                     ClickSetting("自动锁定", autoLockLabel(autoLock)) { showAutoLock = true }
                     SettingDivider()
-                    ClickSetting("自动清除剪贴板", "${clipboardSeconds}秒") { showClipboard = true }
+                    ClickSetting(
+                        "自动清除剪贴板",
+                        if (clipboardSeconds == 0) "从不" else "${clipboardSeconds}秒"
+                    ) { showClipboard = true }
                     SettingDivider()
                     ClickSetting("修改${credentialType.noun}", credentialType.displayName) { showChangeMaster = true }
                     SettingDivider()
@@ -252,7 +275,24 @@ fun SettingsScreen(
             SectionHeader("关于")
             SectionCard {
                 Column {
-                    ClickSetting("关于离线密码库", "版本 1.0 · 完全离线") { showAbout = true }
+                    ClickSetting("检查更新", "通过 GitHub Releases 获取新版") {
+                        val intent = Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/koajsj/vault/releases/latest")
+                        )
+                        try {
+                            context.startActivity(intent)
+                        } catch (_: ActivityNotFoundException) {
+                            toast("未找到可打开更新页面的浏览器")
+                        } catch (_: SecurityException) {
+                            toast("无法打开更新页面")
+                        }
+                    }
+                    SettingDivider()
+                    ClickSetting(
+                        "关于离线密码库",
+                        "版本 ${BuildConfig.VERSION_NAME} · 完全离线"
+                    ) { showAbout = true }
                 }
             }
             Spacer(Modifier.height(28.dp))
@@ -265,7 +305,10 @@ fun SettingsScreen(
             title = "自动锁定",
             options = listOf(0 to "立即锁定", 1 to "1 分钟后", 5 to "5 分钟后"),
             selected = autoLock,
-            onSelect = { viewModel.setAutoLockMinutes(it); showAutoLock = false },
+            onSelect = {
+                viewModel.setAutoLockMinutes(it) { ok -> if (!ok) toast("设置失败") }
+                showAutoLock = false
+            },
             onDismiss = { showAutoLock = false }
         )
     }
@@ -274,7 +317,10 @@ fun SettingsScreen(
             title = "自动清除剪贴板",
             options = listOf(10 to "10 秒", 20 to "20 秒", 30 to "30 秒", 0 to "从不"),
             selected = clipboardSeconds,
-            onSelect = { viewModel.setClipboardSeconds(it); showClipboard = false },
+            onSelect = {
+                viewModel.setClipboardSeconds(it) { ok -> if (!ok) toast("设置失败") }
+                showClipboard = false
+            },
             onDismiss = { showClipboard = false }
         )
     }
@@ -299,7 +345,14 @@ fun SettingsScreen(
             currentQuestion = recoveryQuestion,
             onDismiss = { showChangeRecovery = false },
             onConfirm = { q, a ->
-                viewModel.changeRecovery(q, a) { showChangeRecovery = false; toast("安全问题已更新") }
+                viewModel.changeRecovery(q, a) { ok, msg ->
+                    if (ok) {
+                        showChangeRecovery = false
+                        toast("安全问题已更新")
+                    } else {
+                        toast(msg ?: "操作失败")
+                    }
+                }
             }
         )
     }
@@ -312,7 +365,12 @@ fun SettingsScreen(
             onDismiss = { askExportPassword = false },
             onConfirm = { pw ->
                 askExportPassword = false
-                viewModel.buildEncryptedJsonBackup(pw) { json ->
+                viewModel.buildEncryptedJsonBackup(pw) { result ->
+                    val json = result.content
+                    if (json == null) {
+                        result.errorMessage?.let(::toast)
+                        return@buildEncryptedJsonBackup
+                    }
                     pendingJsonBackup = json
                     com.offlinevault.security.LockGuard.suppressNextBackground = true
                     saveJsonLauncher.launch("offline-vault-backup.json")
@@ -331,7 +389,9 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showCsvWarning = false
-                    if (vaults.size == 1) {
+                    if (vaults.isEmpty()) {
+                        toast("没有可导出的密码库")
+                    } else if (vaults.size == 1) {
                         pendingCsvVaultId = vaults.first().id
                         com.offlinevault.security.LockGuard.suppressNextBackground = true
                         saveCsvLauncher.launch("offline-vault-export.csv")
@@ -385,9 +445,10 @@ fun SettingsScreen(
             title = { Text("离线密码库") },
             text = {
                 Text(
-                    "完全离线的密码管理器，不申请联网权限，不使用云端或服务器。" +
-                        "密码库使用 AES-256-GCM 加密，数字密码或普通密码通过 PBKDF2-HMAC-SHA256 派生密钥。" +
-                        "版本 1.0。"
+                    "完全离线的密码管理器，不申请联网权限，不使用云端或服务器。\n\n" +
+                        "密码库使用 AES-256-GCM 加密，数字密码或普通密码通过 " +
+                        "PBKDF2-HMAC-SHA256 派生密钥。\n\n" +
+                        "版本 ${BuildConfig.VERSION_NAME}。"
                 )
             },
             confirmButton = { TextButton(onClick = { showAbout = false }) { Text("关闭") } }

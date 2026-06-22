@@ -3,6 +3,7 @@ package com.offlinevault
 import android.app.Application
 import com.offlinevault.security.SessionManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.filter
@@ -22,9 +23,13 @@ class OfflineVaultApp : Application() {
         applicationScope.launch {
             SessionManager.unlocked.filter { it }.collect {
                 withContext(Dispatchers.IO) {
-                    runCatching {
+                    try {
                         container.vaultRepository.migrateLegacyMetadata()
                         container.passwordRepository.migrateLegacyMetadata()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // A damaged legacy row must not terminate the application-wide collector.
                     }
                 }
             }

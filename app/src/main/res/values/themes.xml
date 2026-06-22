@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Base theme used before Compose takes over. -->
-    <style name="Theme.OfflineVault" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.OfflineVault.Base" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/vault_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
     </style>
+
+    <style name="Theme.OfflineVault" parent="Theme.OfflineVault.Base" />
 
     <!-- Android 12 splash screen (backported by androidx.core:core-splashscreen). -->
     <style name="Theme.OfflineVault.Starting" parent="Theme.SplashScreen">

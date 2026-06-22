@@ -68,6 +68,7 @@ object KeystoreManager {
 
     /** Splits stored blob into IV + ciphertext. */
     fun splitIv(blob: ByteArray): Pair<ByteArray, ByteArray> {
+        require(blob.size >= IV_LENGTH + GCM_TAG_BITS / 8) { "Invalid biometric key blob" }
         val iv = blob.copyOfRange(0, IV_LENGTH)
         val ct = blob.copyOfRange(IV_LENGTH, blob.size)
         return iv to ct

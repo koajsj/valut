@@ -20,11 +20,11 @@ enum class CredentialType(
     /** True when [value] satisfies this credential's length / character rules. */
     fun isValid(value: String): Boolean =
         if (isNumeric) value.length == minLength && value.all { it.isDigit() }
-        else value.length >= minLength
+        else value.length in minLength..maxLength
 
     /** Filters keystrokes so a PIN only accepts digits and never exceeds its length. */
     fun sanitize(value: String): String =
-        if (isNumeric) value.filter { it.isDigit() }.take(maxLength) else value
+        if (isNumeric) value.filter { it.isDigit() }.take(maxLength) else value.take(maxLength)
 
     companion object {
         fun fromKey(key: String?): CredentialType =

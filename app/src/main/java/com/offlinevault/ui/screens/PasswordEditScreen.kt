@@ -21,6 +21,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -30,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -43,6 +46,7 @@ import com.offlinevault.ui.components.SectionCard
 import com.offlinevault.ui.components.StrengthMeter
 import com.offlinevault.ui.components.VaultTextField
 import com.offlinevault.viewmodel.PasswordEditViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,14 +59,25 @@ fun PasswordEditScreen(
 ) {
     LaunchedEffect(vaultId, passwordId) { viewModel.initialize(vaultId, passwordId) }
     val form by viewModel.form.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     var reveal by remember { mutableStateOf(false) }
     var showGenerator by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     val strength = PasswordStrengthChecker.evaluate(form.password)
 
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbar.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
+
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(if (form.isEditing) "编辑密码" else "新建密码") },
@@ -139,7 +154,15 @@ fun PasswordEditScreen(
             Spacer(Modifier.height(24.dp))
             PrimaryButton(
                 text = "保存",
-                onClick = { viewModel.save(onDone) },
+                onClick = {
+                    viewModel.save { ok, message ->
+                        if (ok) {
+                            onDone()
+                        } else if (!message.isNullOrBlank()) {
+                            scope.launch { snackbar.showSnackbar(message) }
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(24.dp))

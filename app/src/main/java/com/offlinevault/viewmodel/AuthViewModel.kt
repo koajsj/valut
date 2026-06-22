@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
 import javax.crypto.Cipher
 
 enum class AppLockState { LOADING, SETUP, LOCKED, UNLOCKED }
@@ -60,6 +61,8 @@ class AuthViewModel(
 
     private val _setupError = MutableStateFlow<String?>(null)
     val setupError: StateFlow<String?> = _setupError.asStateFlow()
+    private var setupJob: Job? = null
+    private var unlockJob: Job? = null
 
     fun setup(
         masterPassword: String,
@@ -67,12 +70,15 @@ class AuthViewModel(
         recoveryAnswer: String,
         credentialType: CredentialType
     ) {
-        viewModelScope.launch {
+        if (setupJob?.isActive == true) return
+        setupJob = viewModelScope.launch {
             try {
                 prefs.setCredentialType(credentialType.key)
                 withContext(Dispatchers.Default) {
                     keyManager.setup(masterPassword, recoveryQuestion.trim(), recoveryAnswer)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _setupError.value = "创建密码库失败：${e.message}"
             }
@@ -80,7 +86,8 @@ class AuthViewModel(
     }
 
     fun unlockWithPassword(password: String) {
-        viewModelScope.launch {
+        if (unlockJob?.isActive == true) return
+        unlockJob = viewModelScope.launch {
             _unlockState.value = _unlockState.value.copy(isLoading = true, errorMessage = null)
             val result = try {
                 withContext(Dispatchers.Default) { keyManager.unlockWithPassword(password) }
@@ -118,17 +125,27 @@ class AuthViewModel(
         }
     }
 
-    fun clearUnlockError() {
-        _unlockState.value = _unlockState.value.copy(errorMessage = null)
-    }
-
     /** Returns a biometric-bound decrypt cipher (or null if biometric isn't usable). */
     fun prepareBiometricCipher(onReady: (Cipher?) -> Unit) {
         viewModelScope.launch {
             val cipher = try {
                 keyManager.biometricDecryptCipher()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
+            }
+            if (cipher == null && biometricEnabled.value) {
+                try {
+                    keyManager.disableBiometric()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // The password path remains available even if stale biometric state persists.
+                }
+                _unlockState.value = _unlockState.value.copy(
+                    errorMessage = "指纹解锁已失效，请使用主密码并在设置中重新启用"
+                )
             }
             onReady(cipher)
         }
@@ -136,22 +153,34 @@ class AuthViewModel(
 
     fun finishBiometricUnlock(cipher: Cipher) {
         viewModelScope.launch {
-            when (val result = keyManager.unlockWithBiometricCipher(cipher)) {
-                is UnlockResult.Success -> _unlockState.value = UnlockUiState()
-                is UnlockResult.Error ->
-                    _unlockState.value = _unlockState.value.copy(errorMessage = result.message)
-                else -> _unlockState.value = _unlockState.value.copy(errorMessage = "指纹解锁失败")
+            try {
+                when (val result = keyManager.unlockWithBiometricCipher(cipher)) {
+                    is UnlockResult.Success -> _unlockState.value = UnlockUiState()
+                    is UnlockResult.Error ->
+                        _unlockState.value = _unlockState.value.copy(errorMessage = result.message)
+                    else -> _unlockState.value = _unlockState.value.copy(errorMessage = "指纹解锁失败")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _unlockState.value = _unlockState.value.copy(errorMessage = "指纹解锁失败")
             }
         }
     }
 
     fun recover(answer: String, newMasterPassword: String, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
-            when (val result = withContext(Dispatchers.Default) { keyManager.recoverWithAnswer(answer, newMasterPassword) }) {
-                is UnlockResult.Success -> onResult(true, null)
-                is UnlockResult.WrongCredential -> onResult(false, "安全问题答案错误")
-                is UnlockResult.Delayed -> onResult(false, "尝试次数过多，请在 ${result.secondsRemaining} 秒后重试")
-                is UnlockResult.Error -> onResult(false, "恢复失败")
+            try {
+                when (val result = withContext(Dispatchers.Default) { keyManager.recoverWithAnswer(answer, newMasterPassword) }) {
+                    is UnlockResult.Success -> onResult(true, null)
+                    is UnlockResult.WrongCredential -> onResult(false, "安全问题答案错误")
+                    is UnlockResult.Delayed -> onResult(false, "尝试次数过多，请在 ${result.secondsRemaining} 秒后重试")
+                    is UnlockResult.Error -> onResult(false, result.message)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "恢复失败")
             }
         }
     }

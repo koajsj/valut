@@ -7,7 +7,9 @@ import com.offlinevault.data.repository.VaultRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 data class EditFormState(
     val id: String? = null,
@@ -29,7 +31,11 @@ class PasswordEditViewModel(
     private val _form = MutableStateFlow(EditFormState())
     val form: StateFlow<EditFormState> = _form.asStateFlow()
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
     private var loadedKey: String? = null
+    private var saveJob: Job? = null
 
     /** Loads either a new (vaultId set) or existing (passwordId set) form exactly once per target. */
     fun initialize(vaultId: String, passwordId: String?) {
@@ -41,19 +47,27 @@ class PasswordEditViewModel(
             _form.value = EditFormState(vaultId = vaultId, isEditing = false)
         } else {
             viewModelScope.launch {
-                val item = passwordRepository.getDecrypted(passwordId)
-                if (item != null) {
-                    _form.value = EditFormState(
-                        id = item.id,
-                        vaultId = item.vaultId,
-                        title = item.title,
-                        username = item.username,
-                        password = item.password,
-                        url = item.url,
-                        tags = item.tags.joinToString(", "),
-                        note = item.note,
-                        isEditing = true
-                    )
+                try {
+                    val item = passwordRepository.getDecrypted(passwordId)
+                    if (item != null) {
+                        _form.value = EditFormState(
+                            id = item.id,
+                            vaultId = item.vaultId,
+                            title = item.title,
+                            username = item.username,
+                            password = item.password,
+                            url = item.url,
+                            tags = item.tags.joinToString(", "),
+                            note = item.note,
+                            isEditing = true
+                        )
+                    } else {
+                        _errorMessage.value = "未找到这条密码"
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    _errorMessage.value = "无法读取这条密码"
                 }
             }
         }
@@ -65,26 +79,37 @@ class PasswordEditViewModel(
 
     fun setPassword(value: String) = update { it.copy(password = value) }
 
-    fun save(onDone: () -> Unit) {
+    fun save(onResult: (Boolean, String?) -> Unit) {
+        if (saveJob?.isActive == true) return
         val f = _form.value
-        if (f.title.isBlank() && f.username.isBlank()) {
-            onDone()
+        if (listOf(f.title, f.username, f.password, f.url, f.tags, f.note).all(String::isBlank)) {
+            onResult(true, null)
             return
         }
-        viewModelScope.launch {
-            val tags = f.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            passwordRepository.save(
-                id = f.id,
-                vaultId = f.vaultId,
-                title = f.title.ifBlank { f.username.ifBlank { "无标题" } },
-                username = f.username,
-                password = f.password,
-                url = f.url,
-                tags = tags,
-                note = f.note
-            )
-            vaultRepository.touch(f.vaultId)
-            onDone()
+        saveJob = viewModelScope.launch {
+            try {
+                val tags = f.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                passwordRepository.save(
+                    id = f.id,
+                    vaultId = f.vaultId,
+                    title = f.title.ifBlank { f.username.ifBlank { "无标题" } },
+                    username = f.username,
+                    password = f.password,
+                    url = f.url,
+                    tags = tags,
+                    note = f.note
+                )
+                vaultRepository.touch(f.vaultId)
+                onResult(true, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "保存失败，请重新解锁后重试")
+            }
         }
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
     }
 }

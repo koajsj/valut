@@ -19,7 +19,8 @@ object ClipboardHelper {
     private var pendingClear: Runnable? = null
 
     fun copySensitive(context: Context, label: String, value: String, clearAfterSeconds: Int) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val appContext = context.applicationContext
+        val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, value)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             clip.description.extras = PersistableBundle().apply {
@@ -28,9 +29,10 @@ object ClipboardHelper {
         }
         clipboard.setPrimaryClip(clip)
 
+        pendingClear?.let { handler.removeCallbacks(it) }
+        pendingClear = null
         if (clearAfterSeconds > 0) {
-            pendingClear?.let { handler.removeCallbacks(it) }
-            val runnable = Runnable { clear(context, value) }
+            val runnable = Runnable { clear(appContext, value) }
             pendingClear = runnable
             handler.postDelayed(runnable, clearAfterSeconds * 1000L)
         }
