@@ -35,8 +35,12 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
+                    // NEVER rename this file or the user's existing vault becomes orphaned.
                     "offline_vault.db"
                 )
+                    // Data-safety policy: every schema bump MUST ship a Migration here. Do NOT add
+                    // fallbackToDestructiveMigration() — a missing migration should fail loudly,
+                    // never silently wipe the encrypted vault.
                     .addMigrations(MIGRATION_1_2)
                     .build()
                     .also { INSTANCE = it }

@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
+// NEVER rename this store: it holds the salts and wrapped DEKs. Renaming orphans every vault and
+// effectively destroys the user's data. Add new keys instead; old keys may be absent on upgrade,
+// so every accessor must default safely for vaults created by earlier versions.
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "offline_vault_secure_prefs")
 
 /** App level (non-secret-bearing key material + user settings) persistence backed by DataStore. */
@@ -119,8 +122,16 @@ class SecurityPreferences(private val context: Context) {
     suspend fun recoveryIterations(): Int =
         context.dataStore.data.first()[Keys.RECOVERY_ITERATIONS] ?: CryptoManager.LEGACY_PBKDF2_ITERATIONS
 
+    // Legacy compatibility: vaults created before the credential type existed were password-only.
+    // If no type was stored but a vault already exists, treat it as a password so the unlock screen
+    // shows the full keyboard — defaulting such users to a numeric PIN would lock them out. Only a
+    // fresh install (no vault material) gets the new PIN6 default. On read error fall back to the
+    // least-restrictive password keyboard.
     val credentialTypeFlow: Flow<String> =
-        context.dataStore.data.map { it[Keys.CREDENTIAL_TYPE] ?: "pin6" }.catch { emit("pin6") }
+        context.dataStore.data.map { prefs ->
+            prefs[Keys.CREDENTIAL_TYPE]
+                ?: if (prefs[Keys.MASTER_WRAPPED_DEK] != null) "password" else "pin6"
+        }.catch { emit("password") }
 
     suspend fun setCredentialType(value: String) {
         context.dataStore.edit { it[Keys.CREDENTIAL_TYPE] = value }
