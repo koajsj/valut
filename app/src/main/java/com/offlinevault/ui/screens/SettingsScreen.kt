@@ -3,6 +3,8 @@ package com.offlinevault.ui.screens
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
+import android.view.autofill.AutofillManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -186,6 +188,38 @@ fun SettingsScreen(
         }
     }
 
+    // ---- Autofill enablement ----
+    val autofillManager = remember { context.getSystemService(AutofillManager::class.java) }
+    val autofillSupported = remember {
+        runCatching { autofillManager?.isAutofillSupported == true }.getOrDefault(false)
+    }
+    var autofillServiceEnabled by remember {
+        mutableStateOf(runCatching { autofillManager?.hasEnabledAutofillServices() == true }.getOrDefault(false))
+    }
+    val autofillSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        com.offlinevault.security.LockGuard.suppressNextBackground = false
+        autofillServiceEnabled =
+            runCatching { autofillManager?.hasEnabledAutofillServices() == true }.getOrDefault(false)
+    }
+    fun openAutofillSettings() {
+        com.offlinevault.security.LockGuard.suppressNextBackground = true
+        try {
+            autofillSettingsLauncher.launch(
+                Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE)
+                    .setData(Uri.parse("package:${context.packageName}"))
+            )
+        } catch (_: ActivityNotFoundException) {
+            try {
+                autofillSettingsLauncher.launch(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE))
+            } catch (_: Exception) {
+                com.offlinevault.security.LockGuard.suppressNextBackground = false
+                toast("无法打开自动填充设置，请在系统设置中手动开启")
+            }
+        }
+    }
+
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -279,6 +313,38 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionHeader("自动填充")
+            SectionCard {
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text("在其他应用和网页中自动填充与保存账号密码", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        when {
+                            !autofillSupported -> "当前设备不支持系统自动填充"
+                            autofillServiceEnabled -> "已将本应用设为系统自动填充服务"
+                            else -> "尚未启用：需在系统设置中将「Offline Vault」设为自动填充服务后才能使用"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (autofillServiceEnabled || !autofillSupported)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.error
+                    )
+                    if (autofillSupported) {
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { openAutofillSettings() }) {
+                            Text(if (autofillServiceEnabled) "重新打开系统设置" else "去系统设置开启")
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "提示：在浏览器（如 Chrome）中使用时，可能还需在浏览器设置里允许使用第三方自动填充服务。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
