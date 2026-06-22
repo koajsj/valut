@@ -71,6 +71,7 @@ import com.offlinevault.ui.components.CardShape
 import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.RiskChip
 import com.offlinevault.utils.FileIo
+import com.offlinevault.utils.FilePickerCompat
 import com.offlinevault.viewmodel.PasswordListViewModel
 import kotlinx.coroutines.launch
 
@@ -82,12 +83,12 @@ fun PasswordListScreen(
     onAddItem: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val items by viewModel.items.collectAsStateWithLifecycle()
-    val query by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val tags by viewModel.tags.collectAsStateWithLifecycle()
-    val activeTag by viewModel.activeTag.collectAsStateWithLifecycle()
-    val vaultName by viewModel.vaultName.collectAsStateWithLifecycle()
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val items by viewModel.tiaomu.collectAsStateWithLifecycle()
+    val query by viewModel.sousuoChaxun.collectAsStateWithLifecycle()
+    val tags by viewModel.biaoqianLiebiao.collectAsStateWithLifecycle()
+    val activeTag by viewModel.dangqianBiaoqian.collectAsStateWithLifecycle()
+    val vaultName by viewModel.mimakuMingcheng.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.cuowuXinxi.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -104,13 +105,14 @@ fun PasswordListScreen(
     androidx.compose.runtime.LaunchedEffect(errorMessage) {
         errorMessage?.let {
             snackbar.showSnackbar(it)
-            viewModel.clearError()
+            viewModel.qingchuCuowu()
         }
     }
 
     fun handlePickedUri(uri: Uri?) {
         LockGuard.suppressNextBackground = false
         if (uri == null) return
+        FilePickerCompat.persistReadPermission(context, uri)
         scope.launch {
             val text = FileIo.readText(context, uri)
             if (text == null) {
@@ -121,7 +123,7 @@ fun PasswordListScreen(
             val looksCsv = name.endsWith(".csv") ||
                 (text.lineSequence().firstOrNull()?.contains(",") == true && !text.trimStart().startsWith("{"))
             if (looksCsv) {
-                viewModel.importCsv(text) { importToast(it) }
+                viewModel.daoruCsv(text) { importToast(it) }
             } else {
                 pendingImportJson = text
                 importJsonPasswordPrompt = true
@@ -129,29 +131,21 @@ fun PasswordListScreen(
         }
     }
 
-    val openDocumentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> handlePickedUri(uri) }
-
-    // Fallback for devices whose system has no ACTION_OPEN_DOCUMENT handler.
-    val getContentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> handlePickedUri(uri) }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        handlePickedUri(FilePickerCompat.extractUri(result.data))
+    }
 
     fun launchImport() {
         LockGuard.suppressNextBackground = true
-        try {
-            openDocumentLauncher.launch(
-                arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
-            )
-        } catch (_: RuntimeException) {
-            try {
-                getContentLauncher.launch("*/*")
-            } catch (_: RuntimeException) {
-                LockGuard.suppressNextBackground = false
-                toast("未找到可用的文件管理器，无法选择文件")
-            }
+        val chooserIntent = FilePickerCompat.createImportChooser(context)
+        if (chooserIntent == null) {
+            LockGuard.suppressNextBackground = false
+            toast("未找到可用的文件管理器，无法选择文件")
+            return
         }
+        importLauncher.launch(chooserIntent)
     }
 
     Scaffold(
@@ -192,7 +186,7 @@ fun PasswordListScreen(
         ) {
             OutlinedTextField(
                 value = query,
-                onValueChange = viewModel::setQuery,
+                onValueChange = viewModel::shezhiChaxun,
                 placeholder = { Text("搜索标题、用户名或网址…") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
@@ -210,7 +204,7 @@ fun PasswordListScreen(
                     items(tags) { tag ->
                         FilterChip(
                             selected = activeTag == tag,
-                            onClick = { viewModel.toggleTag(tag) },
+                            onClick = { viewModel.qiehuanBiaoqian(tag) },
                             label = { Text(tag) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
@@ -266,7 +260,7 @@ fun PasswordListScreen(
                         importJsonPasswordPrompt = false
                         val json = pendingImportJson
                         pendingImportJson = null
-                        if (json != null) viewModel.importJson(json, password) { importToast(it) }
+                        if (json != null) viewModel.daoruJson(json, password) { importToast(it) }
                     },
                     enabled = password.isNotEmpty()
                 ) { Text("继续") }

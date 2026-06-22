@@ -52,6 +52,7 @@ import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.SectionCard
 import com.offlinevault.ui.components.VaultTextField
 import com.offlinevault.utils.FileIo
+import com.offlinevault.utils.FilePickerCompat
 import com.offlinevault.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
 
@@ -136,6 +137,7 @@ fun SettingsScreen(
     fun handlePickedUri(uri: Uri?) {
         com.offlinevault.security.LockGuard.suppressNextBackground = false
         if (uri == null) return
+        FilePickerCompat.persistReadPermission(context, uri)
         scope.launch {
             val text = FileIo.readText(context, uri)
             if (text == null) {
@@ -158,29 +160,21 @@ fun SettingsScreen(
         }
     }
 
-    val openFileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> handlePickedUri(uri) }
-
-    // Fallback for devices whose system has no ACTION_OPEN_DOCUMENT handler.
-    val getContentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> handlePickedUri(uri) }
+    val importFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        handlePickedUri(FilePickerCompat.extractUri(result.data))
+    }
 
     fun launchImport() {
         com.offlinevault.security.LockGuard.suppressNextBackground = true
-        try {
-            openFileLauncher.launch(
-                arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
-            )
-        } catch (_: RuntimeException) {
-            try {
-                getContentLauncher.launch("*/*")
-            } catch (_: RuntimeException) {
-                com.offlinevault.security.LockGuard.suppressNextBackground = false
-                toast("未找到可用的文件管理器，无法选择文件")
-            }
+        val chooserIntent = FilePickerCompat.createImportChooser(context)
+        if (chooserIntent == null) {
+            com.offlinevault.security.LockGuard.suppressNextBackground = false
+            toast("未找到可用的文件管理器，无法选择文件")
+            return
         }
+        importFileLauncher.launch(chooserIntent)
     }
 
     Scaffold(

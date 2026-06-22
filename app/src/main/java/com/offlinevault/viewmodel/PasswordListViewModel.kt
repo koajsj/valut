@@ -24,122 +24,122 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PasswordListViewModel(
-    private val passwordRepository: PasswordRepository,
-    private val vaultRepository: VaultRepository,
-    private val backupManager: BackupManager
+    private val mimaCangku: PasswordRepository,
+    private val mimakuCangku: VaultRepository,
+    private val beifenGuanli: BackupManager
 ) : ViewModel() {
 
-    private val vaultId = MutableStateFlow("")
-    private val query = MutableStateFlow("")
-    private val tagFilter = MutableStateFlow<String?>(null)
+    private val mimakuId = MutableStateFlow("")
+    private val chaxun = MutableStateFlow("")
+    private val biaoqianGuolv = MutableStateFlow<String?>(null)
 
-    val searchQuery: StateFlow<String> = query.asStateFlow()
-    val activeTag: StateFlow<String?> = tagFilter.asStateFlow()
+    val sousuoChaxun: StateFlow<String> = chaxun.asStateFlow()
+    val dangqianBiaoqian: StateFlow<String?> = biaoqianGuolv.asStateFlow()
 
-    private val _vaultName = MutableStateFlow("")
-    val vaultName: StateFlow<String> = _vaultName.asStateFlow()
+    private val _mimakuMingcheng = MutableStateFlow("")
+    val mimakuMingcheng: StateFlow<String> = _mimakuMingcheng.asStateFlow()
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+    private val _cuowuXinxi = MutableStateFlow<String?>(null)
+    val cuowuXinxi: StateFlow<String?> = _cuowuXinxi.asStateFlow()
 
-    val items: StateFlow<List<PasswordEntity>> =
-        combine(vaultId, query, tagFilter) { id, q, tag -> Triple(id, q, tag) }
-            .flatMapLatest { (id, q, tag) ->
+    val tiaomu: StateFlow<List<PasswordEntity>> =
+        combine(mimakuId, chaxun, biaoqianGuolv) { kuId, cxWen, biaoqian -> Triple(kuId, cxWen, biaoqian) }
+            .flatMapLatest { (kuId, cxWen, biaoqian) ->
                 when {
-                    id.isEmpty() -> kotlinx.coroutines.flow.flowOf(emptyList())
-                    tag != null -> passwordRepository.byTag(id, tag)
-                    q.isNotBlank() -> passwordRepository.search(id, q.trim())
-                    else -> passwordRepository.passwordsByVault(id)
+                    kuId.isEmpty() -> kotlinx.coroutines.flow.flowOf(emptyList())
+                    biaoqian != null -> mimaCangku.byTag(kuId, biaoqian)
+                    cxWen.isNotBlank() -> mimaCangku.search(kuId, cxWen.trim())
+                    else -> mimaCangku.passwordsByVault(kuId)
                 }
             }
-            .catch { error ->
-                if (error is CancellationException) throw error
-                _errorMessage.value = "无法读取密码数据"
+            .catch { yichang ->
+                if (yichang is CancellationException) throw yichang
+                _cuowuXinxi.value = "无法读取密码数据"
                 emit(emptyList())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** All distinct tags present in the current vault, for the filter row. */
-    val tags: StateFlow<List<String>> =
-        vaultId.flatMapLatest { id ->
-            if (id.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
-            else passwordRepository.passwordsByVault(id)
-        }.map { list ->
-            list.flatMap { it.tags.split(",") }
+    val biaoqianLiebiao: StateFlow<List<String>> =
+        mimakuId.flatMapLatest { kuId ->
+            if (kuId.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
+            else mimaCangku.passwordsByVault(kuId)
+        }.map { liebiao ->
+            liebiao.flatMap { it.tags.split(",") }
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
                 .sorted()
-        }.catch { error ->
-            if (error is CancellationException) throw error
+        }.catch { yichang ->
+            if (yichang is CancellationException) throw yichang
             emit(emptyList())
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun load(id: String) {
-        vaultId.value = id
+    fun jiazai(kuId: String) {
+        mimakuId.value = kuId
         viewModelScope.launch {
-            _vaultName.value = vaultRepository.getById(id)?.name ?: "密码库"
+            _mimakuMingcheng.value = mimakuCangku.getById(kuId)?.name ?: "密码库"
         }
     }
 
     /** Opens the single default vault, creating it on first run. Used as the app's home. */
-    fun loadDefault() {
+    fun jiazaiMoren() {
         viewModelScope.launch {
             try {
-                val vault = vaultRepository.ensureDefault()
-                vaultId.value = vault.id
-                _vaultName.value = vault.name
+                val mimaku = mimakuCangku.ensureDefault()
+                mimakuId.value = mimaku.id
+                _mimakuMingcheng.value = mimaku.name
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _errorMessage.value = "无法打开密码库，请重新锁定后再试"
+                _cuowuXinxi.value = "无法打开密码库，请重新锁定后再试"
             }
         }
     }
 
     /** Current vault id, or empty if not loaded yet. */
-    fun currentVaultId(): String = vaultId.value
+    fun dangqianMimakuId(): String = mimakuId.value
 
-    fun importJson(content: String, password: String, onResult: (ImportResult) -> Unit) {
+    fun daoruJson(neirong: String, mima: String, huidiao: (ImportResult) -> Unit) {
         viewModelScope.launch {
-            val result = try {
-                withContext(Dispatchers.Default) { backupManager.importJsonBackup(content, password) }
+            val jieguo = try {
+                withContext(Dispatchers.Default) { beifenGuanli.importJsonBackup(neirong, mima) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 ImportResult(0, 0, 0, listOf("导入失败，请检查文件后重试"))
             }
-            onResult(result)
+            huidiao(jieguo)
         }
     }
 
-    fun importCsv(content: String, onResult: (ImportResult) -> Unit) {
+    fun daoruCsv(neirong: String, huidiao: (ImportResult) -> Unit) {
         viewModelScope.launch {
-            val result = try {
-                val target = vaultId.value.ifEmpty { vaultRepository.ensureDefault().id }
-                withContext(Dispatchers.Default) { backupManager.importChromeCsv(content, target) }
+            val jieguo = try {
+                val mubiao = mimakuId.value.ifEmpty { mimakuCangku.ensureDefault().id }
+                withContext(Dispatchers.Default) { beifenGuanli.importChromeCsv(neirong, mubiao) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 ImportResult(0, 0, 0, listOf("导入失败，请检查文件后重试"))
             }
-            onResult(result)
+            huidiao(jieguo)
         }
     }
 
-    fun clearError() {
-        _errorMessage.value = null
+    fun qingchuCuowu() {
+        _cuowuXinxi.value = null
     }
 
-    fun setQuery(value: String) { query.value = value }
+    fun shezhiChaxun(zhi: String) { chaxun.value = zhi }
 
-    fun toggleTag(tag: String) {
-        tagFilter.value = if (tagFilter.value == tag) null else tag
+    fun qiehuanBiaoqian(biaoqian: String) {
+        biaoqianGuolv.value = if (biaoqianGuolv.value == biaoqian) null else biaoqian
     }
 
-    fun clearFilters() {
-        query.value = ""
-        tagFilter.value = null
+    fun qingchuGuolv() {
+        chaxun.value = ""
+        biaoqianGuolv.value = null
     }
 }

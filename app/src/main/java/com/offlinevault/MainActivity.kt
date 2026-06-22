@@ -275,12 +275,12 @@ private fun MainNavHost(
     ) {
         composable("passwords") {
             val vm: PasswordListViewModel = viewModel(factory = ViewModelFactory.Factory)
-            LaunchedEffect(Unit) { vm.loadDefault() }
+            LaunchedEffect(Unit) { vm.jiazaiMoren() }
             PasswordListScreen(
                 viewModel = vm,
                 onOpenItem = { navController.navigate("detail/$it") },
                 onAddItem = {
-                    val vaultId = vm.currentVaultId()
+                    val vaultId = vm.dangqianMimakuId()
                     if (vaultId.isNotEmpty()) navController.navigate("add/$vaultId")
                 },
                 onOpenSettings = { navController.navigate("settings") }
