@@ -13,9 +13,11 @@ import com.offlinevault.security.UnlockResult
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import javax.crypto.Cipher
 
@@ -47,7 +49,12 @@ class SettingsViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, com.offlinevault.security.CredentialType.PIN6)
 
     val vaults: StateFlow<List<VaultEntity>> =
-        vaultRepository.allVaults().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        vaultRepository.allVaults()
+            .catch { error ->
+                if (error is CancellationException) throw error
+                emit(emptyList())
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ---- Settings toggles --------------------------------------------------
 
@@ -109,25 +116,53 @@ class SettingsViewModel(
 
     fun buildEncryptedJsonBackup(password: String, onResult: (String) -> Unit) {
         viewModelScope.launch {
-            onResult(withContext(Dispatchers.Default) { backupManager.buildEncryptedJsonBackup(password) })
+            val result = try {
+                withContext(Dispatchers.Default) { backupManager.buildEncryptedJsonBackup(password) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            onResult(result)
         }
     }
 
     fun buildCsv(vaultId: String, onResult: (String) -> Unit) {
         viewModelScope.launch {
-            onResult(withContext(Dispatchers.Default) { backupManager.buildCsvForVault(vaultId) })
+            val result = try {
+                withContext(Dispatchers.Default) { backupManager.buildCsvForVault(vaultId) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            onResult(result)
         }
     }
 
     fun importJson(content: String, password: String, onResult: (ImportResult) -> Unit) {
         viewModelScope.launch {
-            onResult(withContext(Dispatchers.Default) { backupManager.importJsonBackup(content, password) })
+            val result = try {
+                withContext(Dispatchers.Default) { backupManager.importJsonBackup(content, password) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ImportResult(0, 0, 0, listOf("导入失败，请检查文件后重试"))
+            }
+            onResult(result)
         }
     }
 
     fun importCsv(content: String, vaultId: String, onResult: (ImportResult) -> Unit) {
         viewModelScope.launch {
-            onResult(withContext(Dispatchers.Default) { backupManager.importChromeCsv(content, vaultId) })
+            val result = try {
+                withContext(Dispatchers.Default) { backupManager.importChromeCsv(content, vaultId) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ImportResult(0, 0, 0, listOf("导入失败，请检查文件后重试"))
+            }
+            onResult(result)
         }
     }
 }

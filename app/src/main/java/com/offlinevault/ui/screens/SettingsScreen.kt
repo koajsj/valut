@@ -74,7 +74,8 @@ fun SettingsScreen(
 
     fun toast(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     fun importToast(r: ImportResult) =
-        toast("已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
+        toast(r.errors.firstOrNull()
+            ?: "已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
 
     // ---- Dialog state ----
     var showAutoLock by remember { mutableStateOf(false) }
@@ -161,10 +162,10 @@ fun SettingsScreen(
             openFileLauncher.launch(
                 arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
             )
-        } catch (e: android.content.ActivityNotFoundException) {
+        } catch (_: RuntimeException) {
             try {
                 getContentLauncher.launch("*/*")
-            } catch (e2: android.content.ActivityNotFoundException) {
+            } catch (_: RuntimeException) {
                 com.offlinevault.security.LockGuard.suppressNextBackground = false
                 toast("未找到可用的文件管理器，无法选择文件")
             }

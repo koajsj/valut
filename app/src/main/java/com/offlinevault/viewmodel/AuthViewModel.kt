@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import javax.crypto.Cipher
 
@@ -81,7 +82,18 @@ class AuthViewModel(
     fun unlockWithPassword(password: String) {
         viewModelScope.launch {
             _unlockState.value = _unlockState.value.copy(isLoading = true, errorMessage = null)
-            when (val result = withContext(Dispatchers.Default) { keyManager.unlockWithPassword(password) }) {
+            val result = try {
+                withContext(Dispatchers.Default) { keyManager.unlockWithPassword(password) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _unlockState.value = _unlockState.value.copy(
+                    isLoading = false,
+                    errorMessage = "解锁失败，请重试"
+                )
+                return@launch
+            }
+            when (result) {
                 is UnlockResult.Success ->
                     _unlockState.value = UnlockUiState()
                 is UnlockResult.WrongCredential ->

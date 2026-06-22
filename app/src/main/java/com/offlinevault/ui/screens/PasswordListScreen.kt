@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,6 +87,7 @@ fun PasswordListScreen(
     val tags by viewModel.tags.collectAsStateWithLifecycle()
     val activeTag by viewModel.activeTag.collectAsStateWithLifecycle()
     val vaultName by viewModel.vaultName.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -98,7 +98,15 @@ fun PasswordListScreen(
 
     fun toast(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     fun importToast(r: ImportResult) =
-        toast("已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
+        toast(r.errors.firstOrNull()
+            ?: "已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
+
+    androidx.compose.runtime.LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbar.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
 
     fun handlePickedUri(uri: Uri?) {
         if (uri == null) return
@@ -135,10 +143,10 @@ fun PasswordListScreen(
             openDocumentLauncher.launch(
                 arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain", "*/*")
             )
-        } catch (e: ActivityNotFoundException) {
+        } catch (_: RuntimeException) {
             try {
                 getContentLauncher.launch("*/*")
-            } catch (e2: ActivityNotFoundException) {
+            } catch (_: RuntimeException) {
                 LockGuard.suppressNextBackground = false
                 toast("未找到可用的文件管理器，无法选择文件")
             }
