@@ -5,7 +5,12 @@ import android.content.Intent
 import android.net.Uri
 
 object FilePickerCompat {
-    private val importMimeTypes = arrayOf(
+    /**
+     * MIME types offered to the picker. Backup files are detected by content afterwards, so we keep
+     * "*/*" in the list to guarantee a file stays selectable even when a storage provider reports an
+     * unexpected MIME (common on third-party ROMs).
+     */
+    val importMimeTypes = arrayOf(
         "application/json",
         "text/csv",
         "text/comma-separated-values",
@@ -13,10 +18,12 @@ object FilePickerCompat {
         "*/*"
     )
 
-    fun createImportChooser(): Intent =
-        Intent.createChooser(buildGetContentIntent(), "选择导入文件").apply {
-            putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(buildOpenDocumentIntent()))
-        }
+    /**
+     * Fallback chooser for the rare device whose system DocumentsUI (ACTION_OPEN_DOCUMENT) is missing.
+     * Uses ACTION_GET_CONTENT, which more apps respond to.
+     */
+    fun createFallbackImportChooser(): Intent =
+        Intent.createChooser(buildGetContentIntent(), "选择导入文件")
 
     fun extractUri(resultData: Intent?): Uri? = resultData?.data
 
@@ -28,15 +35,6 @@ object FilePickerCompat {
         } catch (_: UnsupportedOperationException) {
         }
     }
-
-    private fun buildOpenDocumentIntent(): Intent =
-        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, importMimeTypes)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        }
 
     private fun buildGetContentIntent(): Intent =
         Intent(Intent.ACTION_GET_CONTENT).apply {

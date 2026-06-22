@@ -170,7 +170,16 @@ fun SettingsScreen(
         }
     }
 
-    val importFileLauncher = rememberLauncherForActivityResult(
+    // Storage Access Framework picker (system DocumentsUI). Available on every Android 8.0+ device,
+    // no third-party file manager required.
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        handlePickedUri(uri)
+    }
+
+    // Fallback for stripped ROMs that lack DocumentsUI: ACTION_GET_CONTENT.
+    val getContentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         handlePickedUri(FilePickerCompat.extractUri(result.data))
@@ -179,7 +188,14 @@ fun SettingsScreen(
     fun launchImport() {
         com.offlinevault.security.LockGuard.suppressNextBackground = true
         try {
-            importFileLauncher.launch(FilePickerCompat.createImportChooser())
+            openDocumentLauncher.launch(FilePickerCompat.importMimeTypes)
+            return
+        } catch (_: ActivityNotFoundException) {
+            // DocumentsUI unavailable — fall through to ACTION_GET_CONTENT.
+        } catch (_: RuntimeException) {
+        }
+        try {
+            getContentLauncher.launch(FilePickerCompat.createFallbackImportChooser())
         } catch (_: ActivityNotFoundException) {
             com.offlinevault.security.LockGuard.suppressNextBackground = false
             toast("未找到可用的文件管理器，无法选择文件")
