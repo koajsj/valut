@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.offlinevault.security.CredentialType
 import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.PrimaryButton
 import com.offlinevault.ui.components.SectionCard
@@ -128,6 +129,7 @@ fun MasterPasswordDialog(
     title: String,
     message: String,
     confirmLabel: String,
+    credentialType: CredentialType,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
@@ -141,10 +143,10 @@ fun MasterPasswordDialog(
                 Spacer(Modifier.height(12.dp))
                 PasswordVisualField(
                     value = password,
-                    onValueChange = { password = it },
-                    label = "当前主密码",
+                    onValueChange = { password = credentialType.sanitize(it) },
+                    label = "当前${credentialType.displayName}",
                     revealed = false,
-                    keyboardType = KeyboardType.Password
+                    keyboardType = if (credentialType.isNumeric) KeyboardType.NumberPassword else KeyboardType.Password
                 )
             }
         },

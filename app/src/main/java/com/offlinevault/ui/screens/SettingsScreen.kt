@@ -455,6 +455,7 @@ fun SettingsScreen(
             else
                 "请输入当前主密码后生成新的 12 个助记词。助记词不会明文保存，只展示一次。",
             confirmLabel = "继续",
+            credentialType = credentialType,
             onDismiss = { showMnemonicPasswordPrompt = false },
             onConfirm = { masterPassword ->
                 pendingMnemonicMasterPassword = masterPassword
@@ -508,6 +509,7 @@ fun SettingsScreen(
             title = "关闭助记词恢复",
             message = "请输入当前主密码。关闭后将删除助记词恢复材料，仅保留主密码 / 指纹 / 密保问题恢复。",
             confirmLabel = "关闭",
+            credentialType = credentialType,
             onDismiss = { showDisableMnemonicPrompt = false },
             onConfirm = { masterPassword ->
                 showDisableMnemonicPrompt = false
