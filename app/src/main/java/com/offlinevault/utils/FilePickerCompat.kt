@@ -7,8 +7,8 @@ import android.net.Uri
 object FilePickerCompat {
     /**
      * MIME types offered to the picker. Backup files are detected by content afterwards, so we keep
-     * "*/*" in the list to guarantee a file stays selectable even when a storage provider reports an
-     * unexpected MIME (common on third-party ROMs).
+     * a wildcard in the list to guarantee a file stays selectable even when a storage provider
+     * reports an unexpected MIME (common on third-party ROMs).
      */
     val importMimeTypes = arrayOf(
         "application/json",
