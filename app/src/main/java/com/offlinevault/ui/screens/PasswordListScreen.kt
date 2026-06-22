@@ -110,7 +110,9 @@ fun PasswordListScreen(
     var autofillEnabled by remember {
         mutableStateOf(runCatching { autofillManager?.hasEnabledAutofillServices() == true }.getOrDefault(false))
     }
+    // Session dismiss (✕) hides until next launch; "不再提示" persists across launches.
     var autofillBannerDismissed by remember { mutableStateOf(false) }
+    val autofillBannerHidden by viewModel.autofillBannerHidden.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         autofillEnabled = runCatching { autofillManager?.hasEnabledAutofillServices() == true }.getOrDefault(false)
     }
@@ -204,26 +206,32 @@ fun PasswordListScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-            if (autofillSupported && !autofillEnabled && !autofillBannerDismissed) {
-                Row(
+            if (autofillSupported && !autofillEnabled && !autofillBannerDismissed && !autofillBannerHidden) {
+                Column(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                        .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("开启自动填充", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "在其他应用和网页中自动填充、保存账号，需先在系统设置中启用。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("开启自动填充", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "在其他应用和网页中自动填充、保存账号，需先在系统设置中启用。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { autofillBannerDismissed = true }) {
+                            Icon(Icons.Filled.Close, contentDescription = "忽略", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    TextButton(onClick = onOpenSettings) { Text("去设置") }
-                    IconButton(onClick = { autofillBannerDismissed = true }) {
-                        Icon(Icons.Filled.Close, contentDescription = "忽略", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { viewModel.buZaiTishiZidongTianchong() }) {
+                            Text("不再提示", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = onOpenSettings) { Text("去设置") }
                     }
                 }
                 Spacer(Modifier.height(8.dp))

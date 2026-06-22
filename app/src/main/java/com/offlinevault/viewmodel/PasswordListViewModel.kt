@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.offlinevault.data.backup.BackupManager
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.data.model.PasswordEntity
+import com.offlinevault.data.preferences.SecurityPreferences
 import com.offlinevault.data.repository.PasswordRepository
 import com.offlinevault.data.repository.VaultRepository
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +29,26 @@ import kotlinx.coroutines.withContext
 class PasswordListViewModel(
     private val mimaCangku: PasswordRepository,
     private val mimakuCangku: VaultRepository,
-    private val beifenGuanli: BackupManager
+    private val beifenGuanli: BackupManager,
+    private val anquanPianhao: SecurityPreferences
 ) : ViewModel() {
+
+    /** Persisted: user permanently hid the autofill enablement banner. */
+    val autofillBannerHidden: StateFlow<Boolean> =
+        anquanPianhao.autofillBannerDismissedFlow
+            .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun buZaiTishiZidongTianchong() {
+        viewModelScope.launch {
+            try {
+                anquanPianhao.setAutofillBannerDismissed(true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Non-critical UI preference; ignore persistence failures.
+            }
+        }
+    }
 
     private val mimakuId = MutableStateFlow("")
     private val chaxun = MutableStateFlow("")

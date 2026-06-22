@@ -19,7 +19,8 @@ object ViewModelFactory {
             PasswordListViewModel(
                 app().container.passwordRepository,
                 app().container.vaultRepository,
-                app().container.backupManager
+                app().container.backupManager,
+                app().container.securityPreferences
             )
         }
         initializer {

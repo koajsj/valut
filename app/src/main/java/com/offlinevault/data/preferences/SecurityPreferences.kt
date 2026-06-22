@@ -43,6 +43,7 @@ class SecurityPreferences(private val context: Context) {
         val AUTO_LOCK_MINUTES = intPreferencesKey("auto_lock_minutes")
         val SCREENSHOT_BLOCKED = booleanPreferencesKey("screenshot_blocked")
         val CLIPBOARD_CLEAR_SECONDS = intPreferencesKey("clipboard_clear_seconds")
+        val AUTOFILL_BANNER_DISMISSED = booleanPreferencesKey("autofill_banner_dismissed")
 
         val FAILED_ATTEMPTS = intPreferencesKey("failed_attempts")
         val LAST_FAILED_AT = longPreferencesKey("last_failed_at")
@@ -200,6 +201,14 @@ class SecurityPreferences(private val context: Context) {
 
     suspend fun setClipboardClearSeconds(value: Int) {
         context.dataStore.edit { it[Keys.CLIPBOARD_CLEAR_SECONDS] = value }
+    }
+
+    /** Whether the user permanently dismissed the home-screen autofill enablement banner. */
+    val autofillBannerDismissedFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.AUTOFILL_BANNER_DISMISSED] ?: false }.catch { emit(false) }
+
+    suspend fun setAutofillBannerDismissed(value: Boolean) {
+        context.dataStore.edit { it[Keys.AUTOFILL_BANNER_DISMISSED] = value }
     }
 
     // ---- Failed unlock tracking (brute force delay) ------------------------
