@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">离线密码库</string>
+    <string name="autofill_service_summary">完全离线的本机密码自动填充服务，不访问网络。</string>
+</resources>

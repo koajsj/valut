@@ -1,0 +1,316 @@
+package com.offlinevault
+
+import android.graphics.Color
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.offlinevault.security.LockGuard
+import com.offlinevault.security.SessionManager
+import com.offlinevault.ui.screens.PasswordDetailScreen
+import com.offlinevault.ui.screens.PasswordEditScreen
+import com.offlinevault.ui.screens.PasswordListScreen
+import com.offlinevault.ui.screens.RecoverScreen
+import com.offlinevault.ui.screens.SettingsScreen
+import com.offlinevault.ui.screens.SetupScreen
+import com.offlinevault.ui.screens.UnlockScreen
+import com.offlinevault.ui.theme.OfflineVaultTheme
+import com.offlinevault.ui.theme.VaultBackground
+import com.offlinevault.ui.theme.VaultBackgroundElevated
+import com.offlinevault.utils.BiometricHelper
+import com.offlinevault.viewmodel.AppLockState
+import com.offlinevault.viewmodel.AuthViewModel
+import com.offlinevault.viewmodel.PasswordDetailViewModel
+import com.offlinevault.viewmodel.PasswordEditViewModel
+import com.offlinevault.viewmodel.PasswordListViewModel
+import com.offlinevault.viewmodel.SettingsViewModel
+import com.offlinevault.viewmodel.ViewModelFactory
+import kotlinx.coroutines.launch
+
+class MainActivity : FragmentActivity() {
+
+    private val prefs by lazy { (application as OfflineVaultApp).container.securityPreferences }
+    private var backgroundedAt: Long = 0L
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
+        super.onCreate(savedInstanceState)
+        // Use dark system-bar icons on the app's white background.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        )
+
+        // Apply / clear FLAG_SECURE reactively from the screenshot-block setting.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                prefs.screenshotBlockedFlow.collect { blocked ->
+                    if (blocked) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
+        }
+
+        setContent {
+            OfflineVaultTheme {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(VaultBackgroundElevated, VaultBackground)
+                            )
+                        )
+                ) {
+                    AppRoot()
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // A system picker or the biometric prompt fronted us — don't lock for that.
+        if (LockGuard.suppressNextBackground) return
+        backgroundedAt = System.currentTimeMillis()
+        lifecycleScope.launch {
+            if (prefs.autoLockMinutesValue() == 0) SessionManager.lock()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (LockGuard.suppressNextBackground) {
+            LockGuard.suppressNextBackground = false
+            return
+        }
+        if (!SessionManager.isUnlocked || backgroundedAt == 0L) return
+        lifecycleScope.launch {
+            val minutes = prefs.autoLockMinutesValue()
+            if (minutes > 0) {
+                val elapsed = System.currentTimeMillis() - backgroundedAt
+                if (elapsed >= minutes * 60_000L) SessionManager.lock()
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppRoot() {
+    val activity = LocalContext.current as FragmentActivity
+    val authVm: AuthViewModel = viewModel(factory = ViewModelFactory.Factory)
+    val settingsVm: SettingsViewModel = viewModel(factory = ViewModelFactory.Factory)
+
+    val lockState by authVm.lockState.collectAsStateWithLifecycle()
+    val unlockState by authVm.unlockState.collectAsStateWithLifecycle()
+    val biometricEnabled by authVm.biometricEnabled.collectAsStateWithLifecycle()
+    val recoveryQuestion by authVm.recoveryQuestion.collectAsStateWithLifecycle()
+    val credentialType by authVm.credentialType.collectAsStateWithLifecycle()
+    val clipboardSeconds by settingsVm.clipboardClearSeconds.collectAsStateWithLifecycle()
+
+    val biometricAvailable = remember { BiometricHelper.canAuthenticate(activity) }
+
+    var showRecover by remember { mutableStateOf(false) }
+    var pendingEnableBiometric by remember { mutableStateOf(false) }
+
+    fun triggerBiometricUnlock() {
+        authVm.prepareBiometricCipher { cipher ->
+            if (cipher != null) {
+                LockGuard.suppressNextBackground = true
+                BiometricHelper.authenticate(
+                    activity = activity,
+                    title = "解锁离线密码库",
+                    subtitle = "使用指纹解锁",
+                    cipher = cipher,
+                    // Clear the suppression as soon as the prompt resolves so a later real
+                    // backgrounding is not wrongly skipped (the prompt often causes no onStop).
+                    onSuccess = { LockGuard.suppressNextBackground = false; authVm.finishBiometricUnlock(it) },
+                    onError = { LockGuard.suppressNextBackground = false },
+                    onCancel = { LockGuard.suppressNextBackground = false }
+                )
+            }
+        }
+    }
+
+    fun enableBiometric(onDone: () -> Unit) {
+        settingsVm.prepareEnableBiometricCipher { cipher ->
+            if (cipher == null) { onDone(); return@prepareEnableBiometricCipher }
+            LockGuard.suppressNextBackground = true
+            BiometricHelper.authenticate(
+                activity = activity,
+                title = "启用指纹解锁",
+                subtitle = "验证后启用指纹解锁",
+                cipher = cipher,
+                onSuccess = { LockGuard.suppressNextBackground = false; settingsVm.finishEnableBiometric(it, onDone) },
+                onError = { LockGuard.suppressNextBackground = false; onDone() },
+                onCancel = { LockGuard.suppressNextBackground = false; onDone() }
+            )
+        }
+    }
+
+    // Enable biometric immediately after first-time setup if the user opted in.
+    LaunchedEffect(lockState, pendingEnableBiometric) {
+        if (lockState == AppLockState.UNLOCKED && pendingEnableBiometric) {
+            pendingEnableBiometric = false
+            enableBiometric { }
+        }
+    }
+
+    Crossfade(targetState = lockState, label = "lockState") { state ->
+        when (state) {
+            AppLockState.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+
+            AppLockState.SETUP -> SetupScreen(
+                setupError = authVm.setupError.collectAsStateWithLifecycle().value,
+                biometricAvailable = biometricAvailable,
+                onCreate = { master, question, answer, enableBio, credType ->
+                    pendingEnableBiometric = enableBio
+                    authVm.setup(master, question, answer, credType)
+                }
+            )
+
+            AppLockState.LOCKED -> {
+                if (showRecover) {
+                    RecoverScreen(
+                        question = recoveryQuestion,
+                        credentialType = credentialType,
+                        onRecover = { answer, newPassword, onResult ->
+                            authVm.recover(answer, newPassword) { ok, msg ->
+                                if (ok) showRecover = false
+                                onResult(ok, msg)
+                            }
+                        },
+                        onBack = { showRecover = false }
+                    )
+                } else {
+                    UnlockScreen(
+                        state = unlockState,
+                        biometricEnabled = biometricEnabled,
+                        credentialType = credentialType,
+                        onUnlock = { authVm.unlockWithPassword(it) },
+                        onBiometric = { triggerBiometricUnlock() },
+                        onForgot = { showRecover = true }
+                    )
+                }
+            }
+
+            AppLockState.UNLOCKED -> MainNavHost(
+                clipboardSeconds = clipboardSeconds,
+                biometricAvailable = biometricAvailable,
+                settingsViewModel = settingsVm,
+                onEnableBiometric = { onDone -> enableBiometric(onDone) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MainNavHost(
+    clipboardSeconds: Int,
+    biometricAvailable: Boolean,
+    settingsViewModel: SettingsViewModel,
+    onEnableBiometric: (onDone: () -> Unit) -> Unit
+) {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = "passwords",
+        enterTransition = { fadeIn(tween(250)) + slideIntoContainer(SlideDirection.Start, tween(250)) },
+        exitTransition = { fadeOut(tween(200)) + slideOutOfContainer(SlideDirection.Start, tween(200)) },
+        popEnterTransition = { fadeIn(tween(250)) + slideIntoContainer(SlideDirection.End, tween(250)) },
+        popExitTransition = { fadeOut(tween(200)) + slideOutOfContainer(SlideDirection.End, tween(200)) }
+    ) {
+        composable("passwords") {
+            val vm: PasswordListViewModel = viewModel(factory = ViewModelFactory.Factory)
+            LaunchedEffect(Unit) { vm.loadDefault() }
+            PasswordListScreen(
+                viewModel = vm,
+                onOpenItem = { navController.navigate("detail/$it") },
+                onAddItem = {
+                    val vaultId = vm.currentVaultId()
+                    if (vaultId.isNotEmpty()) navController.navigate("add/$vaultId")
+                },
+                onOpenSettings = { navController.navigate("settings") }
+            )
+        }
+
+        composable("detail/{passwordId}") { entry ->
+            val passwordId = entry.arguments?.getString("passwordId").orEmpty()
+            val vm: PasswordDetailViewModel = viewModel(factory = ViewModelFactory.Factory)
+            PasswordDetailScreen(
+                viewModel = vm,
+                passwordId = passwordId,
+                clipboardSeconds = clipboardSeconds,
+                onBack = { navController.popBackStack() },
+                onEdit = { navController.navigate("edit/$passwordId") }
+            )
+        }
+
+        composable("add/{vaultId}") { entry ->
+            val vaultId = entry.arguments?.getString("vaultId").orEmpty()
+            val vm: PasswordEditViewModel = viewModel(factory = ViewModelFactory.Factory)
+            PasswordEditScreen(
+                viewModel = vm,
+                vaultId = vaultId,
+                passwordId = null,
+                onDone = { navController.popBackStack() },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("edit/{passwordId}") { entry ->
+            val passwordId = entry.arguments?.getString("passwordId").orEmpty()
+            val vm: PasswordEditViewModel = viewModel(factory = ViewModelFactory.Factory)
+            PasswordEditScreen(
+                viewModel = vm,
+                vaultId = "",
+                passwordId = passwordId,
+                onDone = { navController.popBackStack() },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("settings") {
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                biometricAvailable = biometricAvailable,
+                onBack = { navController.popBackStack() },
+                onEnableBiometric = onEnableBiometric
+            )
+        }
+    }
+}

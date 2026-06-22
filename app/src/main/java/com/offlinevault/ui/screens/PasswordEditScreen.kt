@@ -1,0 +1,158 @@
+package com.offlinevault.ui.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoMode
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.offlinevault.security.PasswordStrengthChecker
+import com.offlinevault.ui.components.PasswordGeneratorSheet
+import com.offlinevault.ui.components.PasswordVisualField
+import com.offlinevault.ui.components.PrimaryButton
+import com.offlinevault.ui.components.SectionCard
+import com.offlinevault.ui.components.StrengthMeter
+import com.offlinevault.ui.components.VaultTextField
+import com.offlinevault.viewmodel.PasswordEditViewModel
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PasswordEditScreen(
+    viewModel: PasswordEditViewModel,
+    vaultId: String,
+    passwordId: String?,
+    onDone: () -> Unit,
+    onBack: () -> Unit
+) {
+    LaunchedEffect(vaultId, passwordId) { viewModel.initialize(vaultId, passwordId) }
+    val form by viewModel.form.collectAsStateWithLifecycle()
+
+    var reveal by remember { mutableStateOf(false) }
+    var showGenerator by remember { mutableStateOf(false) }
+
+    val strength = PasswordStrengthChecker.evaluate(form.password)
+
+    Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        topBar = {
+            TopAppBar(
+                title = { Text(if (form.isEditing) "编辑密码" else "新建密码") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            SectionCard {
+                Column {
+                    VaultTextField(value = form.title, onValueChange = { v -> viewModel.update { it.copy(title = v) } }, label = "标题")
+                    Spacer(Modifier.height(12.dp))
+                    VaultTextField(value = form.username, onValueChange = { v -> viewModel.update { it.copy(username = v) } }, label = "用户名 / 邮箱")
+                    Spacer(Modifier.height(12.dp))
+                    PasswordVisualField(
+                        value = form.password,
+                        onValueChange = { v -> viewModel.setPassword(v) },
+                        label = "密码",
+                        revealed = reveal,
+                        trailing = {
+                            Row {
+                                IconButton(onClick = { reveal = !reveal }) {
+                                    Icon(
+                                        if (reveal) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = "切换显示状态",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = { showGenerator = true }) {
+                                    Icon(Icons.Filled.AutoMode, contentDescription = "生成密码", tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    )
+                    if (form.password.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        StrengthMeter(score = strength.score, level = strength.level)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { showGenerator = true }) {
+                        Icon(Icons.Filled.AutoMode, contentDescription = null)
+                        Text("  生成强密码")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            SectionCard {
+                Column {
+                    VaultTextField(value = form.url, onValueChange = { v -> viewModel.update { it.copy(url = v) } }, label = "网址", keyboardType = KeyboardType.Uri)
+                    Spacer(Modifier.height(12.dp))
+                    VaultTextField(value = form.tags, onValueChange = { v -> viewModel.update { it.copy(tags = v) } }, label = "标签（用逗号分隔）")
+                    Spacer(Modifier.height(12.dp))
+                    VaultTextField(value = form.note, onValueChange = { v -> viewModel.update { it.copy(note = v) } }, label = "备注（已加密）", singleLine = false)
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            PrimaryButton(
+                text = "保存",
+                onClick = { viewModel.save(onDone) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showGenerator) {
+        PasswordGeneratorSheet(
+            onDismiss = { showGenerator = false },
+            onUse = { generated ->
+                viewModel.setPassword(generated)
+                showGenerator = false
+            }
+        )
+    }
+}
