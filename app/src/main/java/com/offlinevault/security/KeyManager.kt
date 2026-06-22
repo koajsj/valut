@@ -243,10 +243,10 @@ class KeyManager(
         val delay = unlockDelaySeconds()
         if (delay > 0) return UnlockResult.Delayed(delay)
 
-        val dek = verifyMasterAndGetDek(masterPassword) ?: return UnlockResult.WrongCredential.also {
+        if (verifyMasterAndGetDek(masterPassword) == null) {
             prefs.recordFailure()
+            return UnlockResult.WrongCredential
         }
-        if (dek.encoded.isEmpty()) return UnlockResult.Error("无法验证当前密码")
         prefs.clearMnemonicMaterial()
         prefs.resetFailures()
         return UnlockResult.Success
