@@ -1,5 +1,6 @@
 package com.offlinevault.ui.screens
 
+import android.content.ActivityNotFoundException
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -139,13 +140,15 @@ fun PasswordListScreen(
 
     fun launchImport() {
         LockGuard.suppressNextBackground = true
-        val chooserIntent = FilePickerCompat.createImportChooser(context)
-        if (chooserIntent == null) {
+        try {
+            importLauncher.launch(FilePickerCompat.createImportChooser())
+        } catch (_: ActivityNotFoundException) {
             LockGuard.suppressNextBackground = false
             toast("未找到可用的文件管理器，无法选择文件")
-            return
+        } catch (_: RuntimeException) {
+            LockGuard.suppressNextBackground = false
+            toast("未找到可用的文件管理器，无法选择文件")
         }
-        importLauncher.launch(chooserIntent)
     }
 
     Scaffold(

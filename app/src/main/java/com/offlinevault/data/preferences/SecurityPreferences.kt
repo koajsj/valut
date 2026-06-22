@@ -26,6 +26,9 @@ class SecurityPreferences(private val context: Context) {
         val MASTER_WRAPPED_DEK = stringPreferencesKey("master_wrapped_dek")
         val RECOVERY_WRAPPED_DEK = stringPreferencesKey("recovery_wrapped_dek")
         val RECOVERY_QUESTION = stringPreferencesKey("recovery_question")
+        val MNEMONIC_SALT = stringPreferencesKey("mnemonic_salt")
+        val MNEMONIC_WRAPPED_DEK = stringPreferencesKey("mnemonic_wrapped_dek")
+        val MNEMONIC_VERIFIER_HASH = stringPreferencesKey("mnemonic_verifier_hash")
 
         // PBKDF2 iteration counts the master / recovery keys were derived with. Persisted so the
         // default can be raised over time without locking existing vaults out. Absent => legacy.
@@ -60,7 +63,10 @@ class SecurityPreferences(private val context: Context) {
         recoveryWrappedDek: String,
         recoveryQuestion: String,
         masterIterations: Int,
-        recoveryIterations: Int
+        recoveryIterations: Int,
+        mnemonicSalt: String,
+        mnemonicWrappedDek: String,
+        mnemonicVerifierHash: String
     ) {
         context.dataStore.edit {
             it[Keys.MASTER_SALT] = masterSalt
@@ -70,6 +76,9 @@ class SecurityPreferences(private val context: Context) {
             it[Keys.RECOVERY_QUESTION] = recoveryQuestion
             it[Keys.MASTER_ITERATIONS] = masterIterations
             it[Keys.RECOVERY_ITERATIONS] = recoveryIterations
+            it[Keys.MNEMONIC_SALT] = mnemonicSalt
+            it[Keys.MNEMONIC_WRAPPED_DEK] = mnemonicWrappedDek
+            it[Keys.MNEMONIC_VERIFIER_HASH] = mnemonicVerifierHash
         }
     }
 
@@ -99,6 +108,9 @@ class SecurityPreferences(private val context: Context) {
     suspend fun recoverySalt(): String? = context.dataStore.data.first()[Keys.RECOVERY_SALT]
     suspend fun masterWrappedDek(): String? = context.dataStore.data.first()[Keys.MASTER_WRAPPED_DEK]
     suspend fun recoveryWrappedDek(): String? = context.dataStore.data.first()[Keys.RECOVERY_WRAPPED_DEK]
+    suspend fun mnemonicSalt(): String? = context.dataStore.data.first()[Keys.MNEMONIC_SALT]
+    suspend fun mnemonicWrappedDek(): String? = context.dataStore.data.first()[Keys.MNEMONIC_WRAPPED_DEK]
+    suspend fun mnemonicVerifierHash(): String? = context.dataStore.data.first()[Keys.MNEMONIC_VERIFIER_HASH]
 
     /** Iteration counts; absent material predates persistence and uses the legacy count. */
     suspend fun masterIterations(): Int =
@@ -115,6 +127,35 @@ class SecurityPreferences(private val context: Context) {
 
     val recoveryQuestionFlow: Flow<String> =
         context.dataStore.data.map { it[Keys.RECOVERY_QUESTION] ?: "" }.catch { emit("") }
+
+    val mnemonicEnabledFlow: Flow<Boolean> =
+        context.dataStore.data
+            .map {
+                !it[Keys.MNEMONIC_SALT].isNullOrBlank() &&
+                    !it[Keys.MNEMONIC_WRAPPED_DEK].isNullOrBlank() &&
+                    !it[Keys.MNEMONIC_VERIFIER_HASH].isNullOrBlank()
+            }
+            .catch { emit(false) }
+
+    suspend fun updateMnemonicMaterial(
+        mnemonicSalt: String,
+        mnemonicWrappedDek: String,
+        mnemonicVerifierHash: String
+    ) {
+        context.dataStore.edit {
+            it[Keys.MNEMONIC_SALT] = mnemonicSalt
+            it[Keys.MNEMONIC_WRAPPED_DEK] = mnemonicWrappedDek
+            it[Keys.MNEMONIC_VERIFIER_HASH] = mnemonicVerifierHash
+        }
+    }
+
+    suspend fun clearMnemonicMaterial() {
+        context.dataStore.edit {
+            it.remove(Keys.MNEMONIC_SALT)
+            it.remove(Keys.MNEMONIC_WRAPPED_DEK)
+            it.remove(Keys.MNEMONIC_VERIFIER_HASH)
+        }
+    }
 
     // ---- Biometric ---------------------------------------------------------
 

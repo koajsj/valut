@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.offlinevault.BuildConfig
 import com.offlinevault.data.backup.ImportResult
+import com.offlinevault.security.MnemonicManager
 import com.offlinevault.security.PasswordStrengthChecker
 import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.SectionCard
@@ -73,8 +74,10 @@ fun SettingsScreen(
     val screenshotBlocked by viewModel.screenshotBlocked.collectAsStateWithLifecycle()
     val clipboardSeconds by viewModel.clipboardClearSeconds.collectAsStateWithLifecycle()
     val recoveryQuestion by viewModel.recoveryQuestion.collectAsStateWithLifecycle()
+    val mnemonicEnabled by viewModel.mnemonicEnabled.collectAsStateWithLifecycle()
     val credentialType by viewModel.credentialType.collectAsStateWithLifecycle()
     val vaults by viewModel.vaults.collectAsStateWithLifecycle()
+    val mnemonicManager = remember { MnemonicManager() }
 
     fun toast(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     fun importToast(r: ImportResult) =
@@ -86,8 +89,12 @@ fun SettingsScreen(
     var showClipboard by remember { mutableStateOf(false) }
     var showChangeMaster by remember { mutableStateOf(false) }
     var showChangeRecovery by remember { mutableStateOf(false) }
+    var showMnemonicPasswordPrompt by remember { mutableStateOf(false) }
+    var showDisableMnemonicPrompt by remember { mutableStateOf(false) }
     var showCsvWarning by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    var pendingMnemonicWords by remember { mutableStateOf<List<String>?>(null) }
+    var pendingMnemonicMasterPassword by remember { mutableStateOf<String?>(null) }
 
     // Pending values across file picker round-trips.
     var pendingJsonBackup by remember { mutableStateOf<String?>(null) }
@@ -168,13 +175,15 @@ fun SettingsScreen(
 
     fun launchImport() {
         com.offlinevault.security.LockGuard.suppressNextBackground = true
-        val chooserIntent = FilePickerCompat.createImportChooser(context)
-        if (chooserIntent == null) {
+        try {
+            importFileLauncher.launch(FilePickerCompat.createImportChooser())
+        } catch (_: ActivityNotFoundException) {
             com.offlinevault.security.LockGuard.suppressNextBackground = false
             toast("未找到可用的文件管理器，无法选择文件")
-            return
+        } catch (_: RuntimeException) {
+            com.offlinevault.security.LockGuard.suppressNextBackground = false
+            toast("未找到可用的文件管理器，无法选择文件")
         }
-        importFileLauncher.launch(chooserIntent)
     }
 
     Scaffold(
@@ -250,6 +259,27 @@ fun SettingsScreen(
                     ClickSetting("修改${credentialType.noun}", credentialType.displayName) { showChangeMaster = true }
                     SettingDivider()
                     ClickSetting("安全问题", recoveryQuestion.ifBlank { "未设置" }) { showChangeRecovery = true }
+                    SettingDivider()
+                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                        Text("助记词与恢复", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            if (mnemonicEnabled) "已启用 12 个助记词恢复，仅用于最终恢复"
+                            else "未启用 12 个助记词恢复",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { showMnemonicPasswordPrompt = true }) {
+                                Text(if (mnemonicEnabled) "重新生成" else "启用")
+                            }
+                            if (mnemonicEnabled) {
+                                TextButton(onClick = { showDisableMnemonicPrompt = true }) {
+                                    Text("关闭", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -351,6 +381,77 @@ fun SettingsScreen(
         )
     }
 
+    if (showMnemonicPasswordPrompt) {
+        MasterPasswordDialog(
+            title = if (mnemonicEnabled) "重新生成助记词" else "启用助记词恢复",
+            message = if (mnemonicEnabled)
+                "请输入当前主密码。新助记词生效后，旧助记词将立即失效。"
+            else
+                "请输入当前主密码后生成新的 12 个助记词。助记词不会明文保存，只展示一次。",
+            confirmLabel = "继续",
+            onDismiss = { showMnemonicPasswordPrompt = false },
+            onConfirm = { masterPassword ->
+                pendingMnemonicMasterPassword = masterPassword
+                pendingMnemonicWords = mnemonicManager.generateWords()
+                showMnemonicPasswordPrompt = false
+            }
+        )
+    }
+
+    if (pendingMnemonicWords != null && pendingMnemonicMasterPassword != null) {
+        AlertDialog(
+            onDismissRequest = {
+                pendingMnemonicWords = null
+                pendingMnemonicMasterPassword = null
+            },
+            title = { Text(if (mnemonicEnabled) "重新生成助记词" else "启用助记词恢复") },
+            text = {
+                MnemonicConfirmationContent(
+                    words = pendingMnemonicWords!!,
+                    actionLabel = if (mnemonicEnabled) "启用新助记词" else "启用助记词恢复",
+                    onBack = {
+                        pendingMnemonicWords = null
+                        pendingMnemonicMasterPassword = null
+                    },
+                    onConfirm = {
+                        val masterPassword = pendingMnemonicMasterPassword
+                        val phrase = pendingMnemonicWords?.joinToString(" ")
+                        pendingMnemonicWords = null
+                        pendingMnemonicMasterPassword = null
+                        if (masterPassword != null && phrase != null) {
+                            viewModel.updateMnemonicRecovery(masterPassword, phrase) { ok, msg ->
+                                toast(
+                                    when {
+                                        ok && mnemonicEnabled -> "助记词已重新生成，旧助记词已失效"
+                                        ok -> "助记词恢复已启用"
+                                        else -> msg ?: "操作失败"
+                                    }
+                                )
+                            }
+                        }
+                    }
+                )
+            },
+            confirmButton = {},
+            dismissButton = {}
+        )
+    }
+
+    if (showDisableMnemonicPrompt) {
+        MasterPasswordDialog(
+            title = "关闭助记词恢复",
+            message = "请输入当前主密码。关闭后将删除助记词恢复材料，仅保留主密码 / 指纹 / 密保问题恢复。",
+            confirmLabel = "关闭",
+            onDismiss = { showDisableMnemonicPrompt = false },
+            onConfirm = { masterPassword ->
+                showDisableMnemonicPrompt = false
+                viewModel.disableMnemonicRecovery(masterPassword) { ok, msg ->
+                    toast(if (ok) "已关闭助记词恢复" else (msg ?: "操作失败"))
+                }
+            }
+        )
+    }
+
     // ---- Export JSON: ask password ----
     if (askExportPassword) {
         BackupPasswordDialog(
@@ -441,7 +542,7 @@ fun SettingsScreen(
                 Text(
                     "完全离线的密码管理器，不申请联网权限，不使用云端或服务器。\n\n" +
                         "密码库使用 AES-256-GCM 加密，数字密码或普通密码通过 " +
-                        "PBKDF2-HMAC-SHA256 派生密钥。\n\n" +
+                        "PBKDF2-HMAC-SHA256 派生密钥。12 个助记词仅用于最终恢复，不可用于日常解锁。\n\n" +
                         "版本 ${BuildConfig.VERSION_NAME}。"
                 )
             },

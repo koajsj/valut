@@ -2,7 +2,6 @@ package com.offlinevault.utils
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 
 object FilePickerCompat {
@@ -14,24 +13,10 @@ object FilePickerCompat {
         "*/*"
     )
 
-    fun createImportChooser(context: Context): Intent? {
-        val packageManager = context.packageManager
-        val candidates = listOf(
-            buildOpenDocumentIntent(),
-            buildGetContentIntent()
-        ).filter { it.canBeHandledBy(packageManager) }
-
-        if (candidates.isEmpty()) return null
-
-        val primary = candidates.first()
-        val alternates = candidates.drop(1).toTypedArray()
-
-        return Intent.createChooser(primary, "选择导入文件").apply {
-            if (alternates.isNotEmpty()) {
-                putExtra(Intent.EXTRA_INITIAL_INTENTS, alternates)
-            }
+    fun createImportChooser(): Intent =
+        Intent.createChooser(buildGetContentIntent(), "选择导入文件").apply {
+            putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(buildOpenDocumentIntent()))
         }
-    }
 
     fun extractUri(resultData: Intent?): Uri? = resultData?.data
 
@@ -60,7 +45,4 @@ object FilePickerCompat {
             putExtra(Intent.EXTRA_MIME_TYPES, importMimeTypes)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-
-    private fun Intent.canBeHandledBy(packageManager: PackageManager): Boolean =
-        resolveActivity(packageManager) != null
 }

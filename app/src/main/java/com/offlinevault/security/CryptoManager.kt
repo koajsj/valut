@@ -1,7 +1,7 @@
 package com.offlinevault.security
 
-import android.util.Base64
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
@@ -104,7 +104,7 @@ object CryptoManager {
     fun decryptString(key: SecretKey, encoded: String): String =
         String(decrypt(key, decode(encoded)), Charsets.UTF_8)
 
-    fun encode(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    fun encode(bytes: ByteArray): String = Base64.getEncoder().withoutPadding().encodeToString(bytes)
 
-    fun decode(value: String): ByteArray = Base64.decode(value, Base64.NO_WRAP)
+    fun decode(value: String): ByteArray = Base64.getDecoder().decode(value)
 }

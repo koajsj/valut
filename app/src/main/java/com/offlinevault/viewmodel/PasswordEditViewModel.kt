@@ -35,6 +35,7 @@ class PasswordEditViewModel(
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     private var loadedKey: String? = null
+    private var loadJob: Job? = null
     private var saveJob: Job? = null
 
     /** Loads either a new (vaultId set) or existing (passwordId set) form exactly once per target. */
@@ -42,13 +43,16 @@ class PasswordEditViewModel(
         val key = "$vaultId|$passwordId"
         if (loadedKey == key) return
         loadedKey = key
+        loadJob?.cancel()
+        _errorMessage.value = null
 
         if (passwordId == null) {
             _form.value = EditFormState(vaultId = vaultId, isEditing = false)
         } else {
-            viewModelScope.launch {
+            loadJob = viewModelScope.launch {
                 try {
                     val item = passwordRepository.getDecrypted(passwordId)
+                    if (loadedKey != key) return@launch
                     if (item != null) {
                         _form.value = EditFormState(
                             id = item.id,
@@ -83,7 +87,7 @@ class PasswordEditViewModel(
         if (saveJob?.isActive == true) return
         val f = _form.value
         if (listOf(f.title, f.username, f.password, f.url, f.tags, f.note).all(String::isBlank)) {
-            onResult(true, null)
+            onResult(false, "请至少填写标题、用户名、密码、网址、标签或备注中的一项")
             return
         }
         saveJob = viewModelScope.launch {

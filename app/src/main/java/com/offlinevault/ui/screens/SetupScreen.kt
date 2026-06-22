@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.offlinevault.security.CredentialType
+import com.offlinevault.security.MnemonicManager
 import com.offlinevault.security.PasswordStrengthChecker
 import com.offlinevault.ui.components.IconBadge
 import com.offlinevault.ui.components.PasswordVisualField
@@ -53,8 +54,9 @@ import com.offlinevault.ui.components.VaultTextField
 fun SetupScreen(
     setupError: String?,
     biometricAvailable: Boolean,
-    onCreate: (master: String, question: String, answer: String, enableBiometric: Boolean, type: CredentialType) -> Unit
+    onCreate: (master: String, question: String, answer: String, mnemonicPhrase: String, enableBiometric: Boolean, type: CredentialType) -> Unit
 ) {
+    val mnemonicManager = remember { MnemonicManager() }
     var credType by remember { mutableStateOf(CredentialType.PIN6) }
     var master by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
@@ -63,6 +65,7 @@ fun SetupScreen(
     var enableBiometric by remember { mutableStateOf(false) }
     var revealMaster by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
+    var pendingMnemonicWords by remember { mutableStateOf<List<String>?>(null) }
 
     val strength = PasswordStrengthChecker.evaluate(master)
     val canSubmit = credType.isValid(master) && confirm.isNotEmpty() &&
@@ -76,6 +79,47 @@ fun SetupScreen(
     }
 
     val keyboardType = if (credType.isNumeric) KeyboardType.NumberPassword else KeyboardType.Password
+
+    if (pendingMnemonicWords != null) {
+        val words = pendingMnemonicWords!!
+        Column(
+            Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp)
+        ) {
+            Spacer(Modifier.height(12.dp))
+            IconBadge(icon = Icons.Filled.Shield)
+            Spacer(Modifier.height(16.dp))
+            Text("保存恢复助记词", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "助记词不会明文保存，也不能用于日常进入 App。它只在忘记主密码且忘记密保答案时，用于恢复密钥并重设主密码。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(24.dp))
+            MnemonicConfirmationContent(
+                words = words,
+                actionLabel = "完成初始化",
+                onBack = { pendingMnemonicWords = null },
+                onConfirm = {
+                    onCreate(
+                        master,
+                        question,
+                        answer,
+                        words.joinToString(" "),
+                        enableBiometric,
+                        credType
+                    )
+                }
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+        return
+    }
 
     Column(
         Modifier
@@ -154,7 +198,7 @@ fun SetupScreen(
                 Text("恢复访问", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "仅在忘记解锁凭据时使用，答案不区分大小写。",
+                    "密保答案用于常规恢复；12 个助记词会在下一步生成，仅展示一次，用于最终恢复。答案不区分大小写。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -190,7 +234,7 @@ fun SetupScreen(
 
         Spacer(Modifier.height(24.dp))
         PrimaryButton(
-            text = "创建密码库",
+            text = "下一步",
             enabled = canSubmit,
             onClick = {
                 localError = when {
@@ -200,7 +244,7 @@ fun SetupScreen(
                     master != confirm -> "两次输入的${credType.noun}不一致"
                     else -> null
                 }
-                if (localError == null) onCreate(master, question, answer, enableBiometric, credType)
+                if (localError == null) pendingMnemonicWords = mnemonicManager.generateWords()
             },
             modifier = Modifier.fillMaxWidth()
         )

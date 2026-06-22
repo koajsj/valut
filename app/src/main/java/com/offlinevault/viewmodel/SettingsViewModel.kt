@@ -31,6 +31,8 @@ class SettingsViewModel(
 
     private var changeMasterJob: Job? = null
     private var changeRecoveryJob: Job? = null
+    private var changeMnemonicJob: Job? = null
+    private var disableMnemonicJob: Job? = null
 
     data class ExportPayload(
         val content: String? = null,
@@ -51,6 +53,9 @@ class SettingsViewModel(
 
     val recoveryQuestion: StateFlow<String> =
         prefs.recoveryQuestionFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    val mnemonicEnabled: StateFlow<Boolean> =
+        prefs.mnemonicEnabledFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val credentialType: StateFlow<com.offlinevault.security.CredentialType> =
         prefs.credentialTypeFlow
@@ -112,6 +117,46 @@ class SettingsViewModel(
                 throw e
             } catch (_: Exception) {
                 onResult(false, "无法更新安全问题")
+            }
+        }
+    }
+
+    fun updateMnemonicRecovery(masterPassword: String, mnemonicPhrase: String, onResult: (Boolean, String?) -> Unit) {
+        if (changeMnemonicJob?.isActive == true) return
+        changeMnemonicJob = viewModelScope.launch {
+            try {
+                when (val result = withContext(Dispatchers.Default) {
+                    keyManager.updateMnemonicRecovery(masterPassword, mnemonicPhrase)
+                }) {
+                    is UnlockResult.Success -> onResult(true, null)
+                    is UnlockResult.WrongCredential -> onResult(false, "当前密码不正确")
+                    is UnlockResult.Delayed -> onResult(false, "失败次数过多，请在 ${result.secondsRemaining} 秒后重试")
+                    is UnlockResult.Error -> onResult(false, result.message)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "无法更新助记词")
+            }
+        }
+    }
+
+    fun disableMnemonicRecovery(masterPassword: String, onResult: (Boolean, String?) -> Unit) {
+        if (disableMnemonicJob?.isActive == true) return
+        disableMnemonicJob = viewModelScope.launch {
+            try {
+                when (val result = withContext(Dispatchers.Default) {
+                    keyManager.disableMnemonicRecovery(masterPassword)
+                }) {
+                    is UnlockResult.Success -> onResult(true, null)
+                    is UnlockResult.WrongCredential -> onResult(false, "当前密码不正确")
+                    is UnlockResult.Delayed -> onResult(false, "失败次数过多，请在 ${result.secondsRemaining} 秒后重试")
+                    is UnlockResult.Error -> onResult(false, result.message)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "无法关闭助记词恢复")
             }
         }
     }

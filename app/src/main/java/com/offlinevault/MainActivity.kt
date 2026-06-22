@@ -155,6 +155,7 @@ private fun AppRoot() {
     val unlockState by authVm.unlockState.collectAsStateWithLifecycle()
     val biometricEnabled by authVm.biometricEnabled.collectAsStateWithLifecycle()
     val recoveryQuestion by authVm.recoveryQuestion.collectAsStateWithLifecycle()
+    val mnemonicEnabled by authVm.mnemonicEnabled.collectAsStateWithLifecycle()
     val credentialType by authVm.credentialType.collectAsStateWithLifecycle()
     val clipboardSeconds by settingsVm.clipboardClearSeconds.collectAsStateWithLifecycle()
 
@@ -215,9 +216,9 @@ private fun AppRoot() {
             AppLockState.SETUP -> SetupScreen(
                 setupError = authVm.setupError.collectAsStateWithLifecycle().value,
                 biometricAvailable = biometricAvailable,
-                onCreate = { master, question, answer, enableBio, credType ->
+                onCreate = { master, question, answer, mnemonicPhrase, enableBio, credType ->
                     pendingEnableBiometric = enableBio
-                    authVm.setup(master, question, answer, credType)
+                    authVm.setup(master, question, answer, credType, mnemonicPhrase)
                 }
             )
 
@@ -226,9 +227,14 @@ private fun AppRoot() {
                     RecoverScreen(
                         question = recoveryQuestion,
                         credentialType = credentialType,
-                        onRecover = { answer, newPassword, onResult ->
+                        mnemonicEnabled = mnemonicEnabled,
+                        onRecoverByAnswer = { answer, newPassword, onResult ->
                             authVm.recover(answer, newPassword) { ok, msg ->
-                                if (ok) showRecover = false
+                                onResult(ok, msg)
+                            }
+                        },
+                        onRecoverByMnemonic = { mnemonic, newPassword, onResult ->
+                            authVm.recoverWithMnemonic(mnemonic, newPassword) { ok, msg ->
                                 onResult(ok, msg)
                             }
                         },

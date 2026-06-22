@@ -51,6 +51,9 @@ class AuthViewModel(
     val recoveryQuestion: StateFlow<String> =
         prefs.recoveryQuestionFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
+    val mnemonicEnabled: StateFlow<Boolean> =
+        prefs.mnemonicEnabledFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     val credentialType: StateFlow<CredentialType> =
         prefs.credentialTypeFlow
             .map { CredentialType.fromKey(it) }
@@ -68,14 +71,15 @@ class AuthViewModel(
         masterPassword: String,
         recoveryQuestion: String,
         recoveryAnswer: String,
-        credentialType: CredentialType
+        credentialType: CredentialType,
+        mnemonicPhrase: String
     ) {
         if (setupJob?.isActive == true) return
         setupJob = viewModelScope.launch {
             try {
                 prefs.setCredentialType(credentialType.key)
                 withContext(Dispatchers.Default) {
-                    keyManager.setup(masterPassword, recoveryQuestion.trim(), recoveryAnswer)
+                    keyManager.setup(masterPassword, recoveryQuestion.trim(), recoveryAnswer, mnemonicPhrase)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -172,8 +176,27 @@ class AuthViewModel(
         viewModelScope.launch {
             try {
                 when (val result = withContext(Dispatchers.Default) { keyManager.recoverWithAnswer(answer, newMasterPassword) }) {
-                    is UnlockResult.Success -> onResult(true, null)
+                    is UnlockResult.Success -> onResult(true, "主密码已重置，请使用新主密码重新解锁")
                     is UnlockResult.WrongCredential -> onResult(false, "安全问题答案错误")
+                    is UnlockResult.Delayed -> onResult(false, "尝试次数过多，请在 ${result.secondsRemaining} 秒后重试")
+                    is UnlockResult.Error -> onResult(false, result.message)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "恢复失败")
+            }
+        }
+    }
+
+    fun recoverWithMnemonic(mnemonic: String, newMasterPassword: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                when (val result = withContext(Dispatchers.Default) {
+                    keyManager.recoverWithMnemonic(mnemonic, newMasterPassword)
+                }) {
+                    is UnlockResult.Success -> onResult(true, "主密码已重置，请使用新主密码重新解锁")
+                    is UnlockResult.WrongCredential -> onResult(false, "助记词错误")
                     is UnlockResult.Delayed -> onResult(false, "尝试次数过多，请在 ${result.secondsRemaining} 秒后重试")
                     is UnlockResult.Error -> onResult(false, result.message)
                 }

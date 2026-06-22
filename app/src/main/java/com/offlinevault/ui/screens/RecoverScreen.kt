@@ -13,9 +13,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.offlinevault.security.CredentialType
+import com.offlinevault.security.MnemonicManager
 import com.offlinevault.security.PasswordStrengthChecker
 import com.offlinevault.ui.components.IconBadge
 import com.offlinevault.ui.components.PasswordVisualField
@@ -40,10 +44,15 @@ import com.offlinevault.ui.components.VaultTextField
 fun RecoverScreen(
     question: String,
     credentialType: CredentialType,
-    onRecover: (answer: String, newPassword: String, onResult: (Boolean, String?) -> Unit) -> Unit,
+    mnemonicEnabled: Boolean,
+    onRecoverByAnswer: (answer: String, newPassword: String, onResult: (Boolean, String?) -> Unit) -> Unit,
+    onRecoverByMnemonic: (mnemonic: String, newPassword: String, onResult: (Boolean, String?) -> Unit) -> Unit,
     onBack: () -> Unit
 ) {
+    val mnemonicManager = remember { MnemonicManager() }
+    var mode by remember(mnemonicEnabled) { mutableStateOf(if (mnemonicEnabled) 0 else 0) }
     var answer by remember { mutableStateOf("") }
+    var mnemonic by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -51,7 +60,10 @@ fun RecoverScreen(
 
     val keyboardType = if (credentialType.isNumeric) KeyboardType.NumberPassword else KeyboardType.Password
     val strength = PasswordStrengthChecker.evaluate(newPassword)
-    val canSubmit = answer.isNotBlank() && credentialType.isValid(newPassword) && confirm.isNotEmpty()
+    val canSubmit = when (mode) {
+        0 -> answer.isNotBlank() && credentialType.isValid(newPassword) && confirm.isNotEmpty()
+        else -> mnemonic.isNotBlank() && credentialType.isValid(newPassword) && confirm.isNotEmpty()
+    }
 
     Column(
         Modifier
@@ -70,23 +82,48 @@ fun RecoverScreen(
         Text("恢复访问", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Text(
-            "回答安全问题后可设置新的${credentialType.noun}。回答正确即可解锁加密密钥，现有数据不会丢失。",
+            "恢复只会重设新的${credentialType.noun}，不会直接进入密码库。完成后仍需使用新主密码重新解锁。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(24.dp))
 
+        if (mnemonicEnabled) {
+            TabRow(selectedTabIndex = mode) {
+                Tab(selected = mode == 0, onClick = { mode = 0 }, text = { Text("密保问题") })
+                Tab(selected = mode == 1, onClick = { mode = 1 }, text = { Text("12 个助记词") })
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
         SectionCard {
             Column {
-                Text("安全问题", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    question.ifBlank { "未设置安全问题" },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(14.dp))
-                VaultTextField(value = answer, onValueChange = { answer = it }, label = "你的答案")
+                if (mode == 0) {
+                    Text("安全问题", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        question.ifBlank { "未设置安全问题" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    VaultTextField(value = answer, onValueChange = { answer = it }, label = "你的答案")
+                } else {
+                    Text("12 个助记词", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "请输入完整 12 个英文单词，单词之间用空格分隔。错误时不会提示具体单词位置。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    VaultTextField(
+                        value = mnemonic,
+                        onValueChange = { mnemonic = it.lowercase() },
+                        label = "助记词",
+                        singleLine = false
+                    )
+                }
             }
         }
 
@@ -125,7 +162,7 @@ fun RecoverScreen(
 
         Spacer(Modifier.height(24.dp))
         PrimaryButton(
-            text = if (working) "正在验证…" else "恢复并解锁",
+            text = if (working) "正在验证…" else "重设主密码",
             enabled = canSubmit && !working,
             onClick = {
                 error = when {
@@ -133,13 +170,19 @@ fun RecoverScreen(
                         if (credentialType.isNumeric) "请输入${credentialType.minLength}位数字密码"
                         else "密码至少需要${credentialType.minLength}个字符"
                     newPassword != confirm -> "两次输入的${credentialType.noun}不一致"
+                    mode == 1 && !mnemonicManager.isValidPhrase(mnemonic) -> "请输入完整有效的 12 个助记词"
                     else -> null
                 }
                 if (error == null) {
                     working = true
-                    onRecover(answer, newPassword) { success, message ->
+                    val callback = { success: Boolean, message: String? ->
                         working = false
-                        if (!success) error = message
+                        error = if (success) message else message
+                    }
+                    if (mode == 0) {
+                        onRecoverByAnswer(answer, newPassword, callback)
+                    } else {
+                        onRecoverByMnemonic(mnemonic, newPassword, callback)
                     }
                 }
             },

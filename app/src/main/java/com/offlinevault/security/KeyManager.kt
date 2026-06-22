@@ -25,13 +25,17 @@ sealed interface UnlockResult {
  *                          └─ wrapped by ──▶ recovery key = PBKDF2(recoveryAnswer, recoverySalt)
  * The DEK is never stored in the clear. Master password and recovery answer are never stored at all.
  */
-class KeyManager(private val prefs: SecurityPreferences) {
+class KeyManager(
+    private val prefs: SecurityPreferences,
+    private val mnemonicManager: MnemonicManager
+) {
 
     /** First launch: create the DEK and wrap it under both the master password and recovery answer. */
     suspend fun setup(
         masterPassword: String,
         recoveryQuestion: String,
-        recoveryAnswer: String
+        recoveryAnswer: String,
+        mnemonicPhrase: String
     ) {
         val dek = CryptoManager.newDataEncryptionKey()
 
@@ -41,9 +45,15 @@ class KeyManager(private val prefs: SecurityPreferences) {
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS
         val masterKey = CryptoManager.deriveKey(masterPassword.toCharArray(), masterSalt, iterations)
         val recoveryKey = CryptoManager.deriveKey(normalizeAnswer(recoveryAnswer).toCharArray(), recoverySalt, iterations)
+        val normalizedMnemonic = mnemonicManager.normalize(mnemonicPhrase)
+        require(mnemonicManager.isValidPhrase(normalizedMnemonic)) { "助记词格式无效" }
+        val mnemonicSalt = CryptoManager.newSalt()
+        val mnemonicKey = mnemonicManager.deriveRecoveryKey(normalizedMnemonic, mnemonicSalt)
 
         val masterWrapped = CryptoManager.encrypt(masterKey, dek.encoded)
         val recoveryWrapped = CryptoManager.encrypt(recoveryKey, dek.encoded)
+        val mnemonicWrapped = CryptoManager.encrypt(mnemonicKey, dek.encoded)
+        val mnemonicVerifierHash = mnemonicManager.verifierHash(normalizedMnemonic, mnemonicSalt)
 
         prefs.saveVaultMaterial(
             masterSalt = CryptoManager.encode(masterSalt),
@@ -52,7 +62,10 @@ class KeyManager(private val prefs: SecurityPreferences) {
             recoveryWrappedDek = CryptoManager.encode(recoveryWrapped),
             recoveryQuestion = recoveryQuestion,
             masterIterations = iterations,
-            recoveryIterations = iterations
+            recoveryIterations = iterations,
+            mnemonicSalt = CryptoManager.encode(mnemonicSalt),
+            mnemonicWrappedDek = CryptoManager.encode(mnemonicWrapped),
+            mnemonicVerifierHash = mnemonicVerifierHash
         )
         prefs.resetFailures()
         SessionManager.unlock(dek)
@@ -122,7 +135,42 @@ class KeyManager(private val prefs: SecurityPreferences) {
         val dek = SecretKeySpec(dekBytes, "AES")
         rewrapMaster(dek, newMasterPassword)
         prefs.resetFailures()
-        SessionManager.unlock(dek)
+        return UnlockResult.Success
+    }
+
+    /** Final recovery path: 12-word phrase recovers the DEK and only resets the master password. */
+    suspend fun recoverWithMnemonic(mnemonicPhrase: String, newMasterPassword: String): UnlockResult {
+        val delay = unlockDelaySeconds()
+        if (delay > 0) return UnlockResult.Delayed(delay)
+
+        val saltB64 = prefs.mnemonicSalt() ?: return UnlockResult.Error("未启用助记词恢复")
+        val wrappedB64 = prefs.mnemonicWrappedDek() ?: return UnlockResult.Error("未启用助记词恢复")
+        val verifierHash = prefs.mnemonicVerifierHash() ?: return UnlockResult.Error("未启用助记词恢复")
+        val normalizedMnemonic = mnemonicManager.normalize(mnemonicPhrase)
+        if (!mnemonicManager.isValidPhrase(normalizedMnemonic)) {
+            prefs.recordFailure()
+            return UnlockResult.WrongCredential
+        }
+
+        val dekBytes = try {
+            val salt = CryptoManager.decode(saltB64)
+            if (!mnemonicManager.verifierMatches(normalizedMnemonic, salt, verifierHash)) {
+                prefs.recordFailure()
+                return UnlockResult.WrongCredential
+            }
+            val mnemonicKey = mnemonicManager.deriveRecoveryKey(normalizedMnemonic, salt)
+            CryptoManager.decrypt(mnemonicKey, CryptoManager.decode(wrappedB64))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: AEADBadTagException) {
+            prefs.recordFailure()
+            return UnlockResult.WrongCredential
+        } catch (_: Exception) {
+            return UnlockResult.Error("无法读取助记词恢复密钥，数据可能已损坏")
+        }
+
+        rewrapMaster(SecretKeySpec(dekBytes, "AES"), newMasterPassword)
+        prefs.resetFailures()
         return UnlockResult.Success
     }
 
@@ -169,6 +217,41 @@ class KeyManager(private val prefs: SecurityPreferences) {
         )
     }
 
+    suspend fun updateMnemonicRecovery(masterPassword: String, mnemonicPhrase: String): UnlockResult {
+        val delay = unlockDelaySeconds()
+        if (delay > 0) return UnlockResult.Delayed(delay)
+
+        val dek = verifyMasterAndGetDek(masterPassword) ?: return UnlockResult.WrongCredential.also {
+            prefs.recordFailure()
+        }
+        val normalizedMnemonic = mnemonicManager.normalize(mnemonicPhrase)
+        if (!mnemonicManager.isValidPhrase(normalizedMnemonic)) return UnlockResult.Error("助记词格式无效")
+
+        val salt = CryptoManager.newSalt()
+        val mnemonicKey = mnemonicManager.deriveRecoveryKey(normalizedMnemonic, salt)
+        val wrapped = CryptoManager.encrypt(mnemonicKey, dek.encoded)
+        prefs.updateMnemonicMaterial(
+            mnemonicSalt = CryptoManager.encode(salt),
+            mnemonicWrappedDek = CryptoManager.encode(wrapped),
+            mnemonicVerifierHash = mnemonicManager.verifierHash(normalizedMnemonic, salt)
+        )
+        prefs.resetFailures()
+        return UnlockResult.Success
+    }
+
+    suspend fun disableMnemonicRecovery(masterPassword: String): UnlockResult {
+        val delay = unlockDelaySeconds()
+        if (delay > 0) return UnlockResult.Delayed(delay)
+
+        val dek = verifyMasterAndGetDek(masterPassword) ?: return UnlockResult.WrongCredential.also {
+            prefs.recordFailure()
+        }
+        if (dek.encoded.isEmpty()) return UnlockResult.Error("无法验证当前密码")
+        prefs.clearMnemonicMaterial()
+        prefs.resetFailures()
+        return UnlockResult.Success
+    }
+
     private suspend fun rewrapMaster(dek: SecretKey, newPassword: String) {
         val salt = CryptoManager.newSalt()
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS
@@ -179,6 +262,24 @@ class KeyManager(private val prefs: SecurityPreferences) {
             masterWrappedDek = CryptoManager.encode(wrapped),
             masterIterations = iterations
         )
+    }
+
+    private suspend fun verifyMasterAndGetDek(masterPassword: String): SecretKey? {
+        val saltB64 = prefs.masterSalt() ?: return null
+        val wrappedB64 = prefs.masterWrappedDek() ?: return null
+        return try {
+            val masterKey = CryptoManager.deriveKey(
+                masterPassword.toCharArray(),
+                CryptoManager.decode(saltB64),
+                prefs.masterIterations()
+            )
+            val dekBytes = CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64))
+            SecretKeySpec(dekBytes, "AES")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
     }
 
     // ---- Biometric ---------------------------------------------------------
