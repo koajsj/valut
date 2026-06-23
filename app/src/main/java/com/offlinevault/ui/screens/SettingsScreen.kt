@@ -48,15 +48,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.offlinevault.BuildConfig
+import com.offlinevault.data.backup.ImportPreview
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.security.MnemonicManager
 import com.offlinevault.security.PasswordStrengthChecker
+import com.offlinevault.ui.components.ImportPreviewDialog
+import com.offlinevault.ui.components.PasteImportDialog
 import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.SectionCard
 import com.offlinevault.ui.components.VaultTextField
 import com.offlinevault.utils.FileIo
 import com.offlinevault.utils.FilePickerCompat
 import com.offlinevault.utils.Formatters
+import com.offlinevault.utils.ImportFormatDetector
 import com.offlinevault.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
 
@@ -89,7 +93,7 @@ fun SettingsScreen(
     fun toast(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     fun importToast(r: ImportResult) =
         toast(r.errors.firstOrNull()
-            ?: "已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
+            ?: "已导入 ${r.imported} 项，覆盖 ${r.updated} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
 
     // ---- Dialog state ----
     var showAutoLock by remember { mutableStateOf(false) }
@@ -109,7 +113,10 @@ fun SettingsScreen(
     var importPasswordPrompt by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
     var pendingImportCsv by remember { mutableStateOf<String?>(null) }
+    var pendingImportAction by remember { mutableStateOf<SettingsPendingImportAction?>(null) }
+    var pendingImportPreview by remember { mutableStateOf<ImportPreview?>(null) }
     var csvTargetPick by remember { mutableStateOf(false) }
+    var showPasteImport by remember { mutableStateOf(false) }
     var askExportPassword by remember { mutableStateOf(false) }
     var csvFormatPick by remember { mutableStateOf(false) }
     // Chosen CSV export shape: true = slim browser-compatible (name,url,username,password).
@@ -151,6 +158,62 @@ fun SettingsScreen(
         pendingCsvVaultId = null
     }
 
+    fun handleImportText(text: String, sourceName: String = "") {
+        if (text.isBlank()) {
+            toast("导入内容为空")
+            return
+        }
+        if (ImportFormatDetector.looksLikeCsv(sourceName, text)) {
+            if (vaults.isEmpty()) {
+                previewCsvImport(text, "")
+            } else {
+                pendingImportCsv = text
+                csvTargetPick = true
+            }
+        } else {
+            pendingImportJson = text
+            importPasswordPrompt = true
+        }
+    }
+
+    fun previewCsvImport(text: String, vaultId: String) {
+        viewModel.previewCsvImport(text, vaultId) { result ->
+            val preview = result.preview
+            if (preview != null) {
+                pendingImportAction = SettingsPendingImportAction.Csv(text, vaultId)
+                pendingImportPreview = preview
+            } else {
+                toast(result.errorMessage ?: "无法预览 CSV")
+            }
+        }
+    }
+
+    fun previewJsonImport(text: String, password: String) {
+        viewModel.previewJsonImport(text, password) { result ->
+            val preview = result.preview
+            if (preview != null) {
+                pendingImportAction = SettingsPendingImportAction.Json(text, password)
+                pendingImportPreview = preview
+            } else {
+                toast(result.errorMessage ?: "无法预览备份")
+            }
+        }
+    }
+
+    fun executePendingImport(strategy: com.offlinevault.data.backup.ImportConflictStrategy) {
+        when (val action = pendingImportAction) {
+            is SettingsPendingImportAction.Csv -> {
+                viewModel.importCsv(action.content, action.vaultId, strategy) { importToast(it) }
+            }
+            is SettingsPendingImportAction.Json -> {
+                viewModel.importJson(action.content, action.password, strategy) { importToast(it) }
+            }
+            null -> Unit
+        }
+        pendingImportAction = null
+        pendingImportPreview = null
+    }
+
     fun handlePickedUri(uri: Uri?) {
         com.offlinevault.security.LockGuard.suppressNextBackground = false
         if (uri == null) return
@@ -161,19 +224,7 @@ fun SettingsScreen(
                 toast("无法读取文件，或文件超过 10 MB")
                 return@launch
             }
-            val name = uri.toString().lowercase()
-            val looksCsv = name.endsWith(".csv") || (text.lineSequence().firstOrNull()?.contains(",") == true && !text.trimStart().startsWith("{"))
-            if (looksCsv) {
-                if (vaults.isEmpty()) {
-                    viewModel.importCsv(text, "") { importToast(it) }
-                } else {
-                    pendingImportCsv = text
-                    csvTargetPick = true
-                }
-            } else {
-                pendingImportJson = text
-                importPasswordPrompt = true
-            }
+            handleImportText(text, uri.toString())
         }
     }
 
@@ -199,27 +250,25 @@ fun SettingsScreen(
         //   1. SAF OpenDocument (system DocumentsUI) — present on every stock Android 8.0+.
         //   2. ACTION_GET_CONTENT via system chooser.
         //   3. ACTION_GET_CONTENT directly (no chooser) — for ROMs whose chooser itself refuses.
-        val pickerErrors = mutableListOf<String>()
         try {
             openDocumentLauncher.launch(FilePickerCompat.importMimeTypes)
             return
-        } catch (e: Exception) {
-            pickerErrors += e.javaClass.simpleName // DocumentsUI unavailable/blocked.
+        } catch (_: Exception) {
+            // DocumentsUI unavailable/blocked.
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createFallbackImportChooser())
             return
-        } catch (e: Exception) {
-            pickerErrors += e.javaClass.simpleName
+        } catch (_: Exception) {
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createDirectGetContentIntent())
             return
-        } catch (e: Exception) {
-            pickerErrors += e.javaClass.simpleName
+        } catch (_: Exception) {
         }
         com.offlinevault.security.LockGuard.suppressNextBackground = false
-        toast("未找到可用的文件管理器（${pickerErrors.lastOrNull() ?: "未知"}）")
+        showPasteImport = true
+        toast("文件选择器不可用，已打开粘贴导入")
     }
 
     fun launchCsvSave(vaultId: String) {
@@ -350,7 +399,7 @@ fun SettingsScreen(
                     SettingDivider()
                     ClickSetting(
                         "自动清除剪贴板",
-                        if (clipboardSeconds == 0) "从不" else "${clipboardSeconds}秒"
+                        "${clipboardSeconds}秒"
                     ) { showClipboard = true }
                     SettingDivider()
                     ClickSetting("修改${credentialType.noun}", credentialType.displayName) { showChangeMaster = true }
@@ -404,7 +453,13 @@ fun SettingsScreen(
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "提示：在浏览器（如 Chrome）中使用时，可能还需在浏览器设置里允许使用第三方自动填充服务。",
+                            "开启步骤：点击上方按钮 → 选择 Offline Vault → 返回本应用。若按钮打不开，请手动进入「系统设置 → 系统 → 语言和输入法 → 自动填充服务」选择 Offline Vault。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "使用时，在浏览器或其他 App 的账号/密码输入框中点击，系统会显示 Offline Vault 的填充建议。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -442,6 +497,8 @@ fun SettingsScreen(
                     ClickSetting("导出表格（CSV）", "明文格式，请谨慎使用") { showCsvWarning = true }
                     SettingDivider()
                     ClickSetting("导入（加密备份 / 浏览器 CSV）", "") { launchImport() }
+                    SettingDivider()
+                    ClickSetting("粘贴导入 JSON/CSV", "文件选择器不可用时使用") { showPasteImport = true }
                 }
             }
 
@@ -458,7 +515,7 @@ fun SettingsScreen(
                             context.startActivity(intent)
                         } catch (_: ActivityNotFoundException) {
                             toast("未找到可打开更新页面的浏览器")
-                        } catch (_: SecurityException) {
+                        } catch (_: Exception) {
                             toast("无法打开更新页面")
                         }
                     }
@@ -496,7 +553,7 @@ fun SettingsScreen(
     if (showClipboard) {
         ChoiceDialog(
             title = "自动清除剪贴板",
-            options = listOf(10 to "10 秒", 20 to "20 秒", 30 to "30 秒", 0 to "从不"),
+            options = listOf(10 to "10 秒", 20 to "20 秒", 30 to "30 秒", 60 to "60 秒"),
             selected = clipboardSeconds,
             onSelect = {
                 viewModel.setClipboardSeconds(it) { ok -> if (!ok) toast("设置失败") }
@@ -625,6 +682,9 @@ fun SettingsScreen(
                         result.errorMessage?.let(::toast)
                         return@buildEncryptedJsonBackup
                     }
+                    if (result.validated) {
+                        toast("备份已通过校验，请选择保存位置")
+                    }
                     pendingJsonBackup = json
                     com.offlinevault.security.LockGuard.suppressNextBackground = true
                     try {
@@ -710,7 +770,7 @@ fun SettingsScreen(
                 if (importing) {
                     val csv = pendingImportCsv
                     pendingImportCsv = null
-                    if (csv != null) viewModel.importCsv(csv, id) { importToast(it) }
+                    if (csv != null) previewCsvImport(csv, id)
                 } else {
                     launchCsvSave(id)
                 }
@@ -729,7 +789,28 @@ fun SettingsScreen(
                 importPasswordPrompt = false
                 val json = pendingImportJson
                 pendingImportJson = null
-                if (json != null) viewModel.importJson(json, pw) { importToast(it) }
+                if (json != null) previewJsonImport(json, pw)
+            }
+        )
+    }
+
+    if (pendingImportPreview != null && pendingImportAction != null) {
+        ImportPreviewDialog(
+            preview = pendingImportPreview!!,
+            onDismiss = {
+                pendingImportPreview = null
+                pendingImportAction = null
+            },
+            onConfirm = { strategy -> executePendingImport(strategy) }
+        )
+    }
+
+    if (showPasteImport) {
+        PasteImportDialog(
+            onDismiss = { showPasteImport = false },
+            onImport = { content ->
+                showPasteImport = false
+                handleImportText(content)
             }
         )
     }
@@ -749,6 +830,11 @@ fun SettingsScreen(
             confirmButton = { TextButton(onClick = { showAbout = false }) { Text("关闭") } }
         )
     }
+}
+
+private sealed interface SettingsPendingImportAction {
+    data class Json(val content: String, val password: String) : SettingsPendingImportAction
+    data class Csv(val content: String, val vaultId: String) : SettingsPendingImportAction
 }
 
 private fun autoLockLabel(seconds: Int): String = when {

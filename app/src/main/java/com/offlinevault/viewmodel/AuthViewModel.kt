@@ -76,11 +76,13 @@ class AuthViewModel(
     ) {
         if (setupJob?.isActive == true) return
         setupJob = viewModelScope.launch {
+            _setupError.value = null
             try {
                 prefs.setCredentialType(credentialType.key)
                 withContext(Dispatchers.Default) {
                     keyManager.setup(masterPassword, recoveryQuestion.trim(), recoveryAnswer, mnemonicPhrase)
                 }
+                _setupError.value = null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

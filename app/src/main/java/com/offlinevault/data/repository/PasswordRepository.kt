@@ -105,7 +105,8 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         password: String,
         url: String,
         tags: List<String>,
-        note: String
+        note: String,
+        favorite: Boolean? = null
     ): String {
         val key = SessionManager.requireKey()
         val now = System.currentTimeMillis()
@@ -126,7 +127,7 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
             updatedAt = now,
             // Preserve flags on edit — they must survive a save.
             deletedAt = existing?.deletedAt ?: 0L,
-            favorite = existing?.favorite ?: false
+            favorite = favorite ?: existing?.favorite ?: false
         )
         // Edits MUST use UPDATE, not INSERT-OR-REPLACE: REPLACE deletes the old row first, which
         // cascade-deletes its password_history. UPDATE changes the row in place and keeps history.

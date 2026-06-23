@@ -1,6 +1,7 @@
 package com.offlinevault.data.backup
 
 import com.google.gson.Gson
+import com.offlinevault.autofill.OriginMatcher
 import com.offlinevault.data.model.VaultEntity
 import com.offlinevault.data.repository.DecryptedPassword
 import com.offlinevault.data.repository.PasswordRepository
@@ -19,7 +20,46 @@ class BackupManager(
         const val MAX_IMPORT_VAULTS = 1_000
         const val MAX_IMPORT_ITEMS = 50_000
         const val MAX_CSV_ROWS = MAX_IMPORT_ITEMS + 1
+        const val PREVIEW_SAMPLE_LIMIT = 5
+        const val NEW_IMPORT_VAULT_PLACEHOLDER = "__new_vault__"
+        const val PENDING_IMPORT_ID_PREFIX = "__pending_import__"
     }
+
+    private data class ImportCandidate(
+        val vaultId: String,
+        val title: String,
+        val username: String,
+        val password: String,
+        val url: String,
+        val tags: List<String>,
+        val note: String,
+        val favorite: Boolean = false
+    ) {
+        fun matchKeys(): Set<String> = buildMatchKeys(title, username, password, url)
+
+        fun toDecrypted(id: String = "") = DecryptedPassword(
+            id = id,
+            vaultId = vaultId,
+            title = title,
+            username = username,
+            password = password,
+            url = url,
+            tags = tags,
+            note = note,
+            strengthScore = 0,
+            createdAt = 0,
+            updatedAt = 0,
+            favorite = favorite
+        )
+    }
+
+    private data class PreparedImport(
+        val formatLabel: String,
+        val targetLabel: String,
+        val candidates: List<ImportCandidate>,
+        val invalidItems: Int,
+        val warnings: List<String>
+    )
 
     private val gson = Gson()
 
@@ -47,108 +87,56 @@ class BackupManager(
             data = CryptoManager.encode(blob),
             iterations = iterations
         )
-        return gson.toJson(wrapper)
+        val result = gson.toJson(wrapper)
+        if (!validateEncryptedJsonBackup(result, backupPassword)) {
+            throw IllegalStateException("备份校验失败")
+        }
+        return result
     }
+
+    suspend fun validateEncryptedJsonBackup(content: String, backupPassword: String): Boolean =
+        runCatching {
+            val data = parseBackupData(content, backupPassword)
+            validateBackup(data) == null
+        }.getOrDefault(false)
 
     // ---- JSON import -------------------------------------------------------
 
-    suspend fun importJsonBackup(content: String, backupPassword: String): ImportResult {
-        val data = try {
-            val wrapper = gson.fromJson(content, EncryptedBackup::class.java)
-            if (wrapper != null && wrapper.format == "offline-vault-backup" && wrapper.encrypted) {
-                val salt = CryptoManager.decode(wrapper.salt)
-                val iterations = CryptoManager.requireValidIterations(
-                    if (wrapper.iterations > 0) wrapper.iterations
-                    else CryptoManager.LEGACY_PBKDF2_ITERATIONS
-                )
-                val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
-                val plainBytes = CryptoManager.decrypt(key, CryptoManager.decode(wrapper.data))
-                val plain = try {
-                    String(plainBytes, Charsets.UTF_8)
-                } finally {
-                    plainBytes.fill(0)
-                }
-                gson.fromJson(plain, BackupData::class.java)
-            } else {
-                // Fall back to a plain (unencrypted) BackupData JSON.
-                gson.fromJson(content, BackupData::class.java)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return ImportResult(0, 0, 0, listOf("无法读取备份：密码错误或文件已损坏"))
-        } ?: return ImportResult(0, 0, 0, listOf("备份为空或格式无效"))
-
-        val validationError = validateBackup(data)
-        if (validationError != null) return ImportResult(0, 0, 0, listOf(validationError))
-
-        var imported = 0
-        var skipped = 0
-        var failed = 0
-        val errors = mutableListOf<String>()
-
-        // Recreate vaults (preserve ids so item links survive).
-        val existingIds = vaultRepository.allOnce().map { it.id }.toMutableSet()
-        for (v in data.vaults) {
-            try {
-                if (v.id !in existingIds) {
-                    vaultRepository.insertImported(VaultEntity(id = v.id, name = v.name, icon = v.icon))
-                    existingIds.add(v.id)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                errors.add("密码库“${v.name}”导入失败：${e.message}")
-            }
-        }
-
-        // Group items by vault, dedupe against existing rows in that vault.
-        val byVault = data.items.groupBy { it.vaultId }
-        for ((rawVaultId, items) in byVault) {
-            // Re-route items whose vault is missing (orphan/malformed backup) to a real vault so the
-            // foreign-key insert never fails.
-            val vaultId = if (rawVaultId.isNotEmpty() && rawVaultId in existingIds) rawVaultId
-            else existingIds.firstOrNull()
-            if (vaultId == null) { failed += items.size; continue }
-
-            val existing = passwordRepository.decryptedForVault(vaultId).map { it.dedupeKey() }.toMutableSet()
-            val toInsert = mutableListOf<DecryptedPassword>()
-            for (item in items) {
-                try {
-                    val key = item.dedupeKey()
-                    if (key in existing) { skipped++; continue }
-                    existing.add(key)
-                    toInsert.add(item.toDecrypted())
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    failed++
-                }
-            }
-            try {
-                imported += passwordRepository.importDecrypted(vaultId, toInsert)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                failed += toInsert.size
-                errors.add("部分项目导入失败：${e.message}")
-            }
-        }
-        return ImportResult(imported, skipped, failed, errors)
+    suspend fun previewJsonBackup(content: String, backupPassword: String): ImportPreview {
+        val prepared = prepareJsonImport(content, backupPassword)
+        return buildPreview(prepared)
     }
 
-    private fun validateBackup(data: BackupData): String? = try {
-        when {
-            data.vaults.size > MAX_IMPORT_VAULTS -> "备份中的密码库数量过多"
-            data.items.size > MAX_IMPORT_ITEMS -> "备份中的项目数量过多"
-            data.vaults.any { it.id.isBlank() || it.name.isBlank() } ->
-                "备份中包含无效的密码库"
-            data.items.any { it.vaultId.isBlank() } -> "备份中包含无效的项目"
-            else -> null
+    suspend fun importJsonBackup(
+        content: String,
+        backupPassword: String,
+        strategy: ImportConflictStrategy = ImportConflictStrategy.SKIP
+    ): ImportResult {
+        val prepared = try {
+            prepareJsonImport(content, backupPassword)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IllegalArgumentException) {
+            return ImportResult(0, 0, 0, listOf(e.message ?: "备份结构无效"))
+        } catch (_: Exception) {
+            return ImportResult(0, 0, 0, listOf("无法读取备份：密码错误或文件已损坏"))
         }
-    } catch (e: Exception) {
-        // Gson can assign null to Kotlin non-null properties in malformed external JSON.
-        "备份结构无效"
+
+        val vaultsById = vaultRepository.allOnce().associateBy { it.id }.toMutableMap()
+        val backupData = parseBackupData(content, backupPassword)
+        for (vault in backupData.vaults) {
+            if (vault.id in vaultsById) continue
+            try {
+                val created = VaultEntity(id = vault.id, name = vault.name, icon = vault.icon)
+                vaultRepository.insertImported(created)
+                vaultsById[vault.id] = created
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Import continues; the candidate-preparation phase already reroutes orphan rows.
+            }
+        }
+        return importPrepared(prepared, strategy)
     }
 
     // ---- CSV export -------------------------------------------------------
@@ -164,9 +152,9 @@ class BackupManager(
         val header = if (slim) listOf("name", "url", "username", "password")
         else listOf("name", "url", "username", "password", "note", "tags")
         sb.append(CsvUtils.buildRow(header)).append("\n")
-        for (it in items) {
-            val row = if (slim) listOf(it.title, it.url, it.username, it.password)
-            else listOf(it.title, it.url, it.username, it.password, it.note, it.tags.joinToString("|"))
+        for (item in items) {
+            val row = if (slim) listOf(item.title, item.url, item.username, item.password)
+            else listOf(item.title, item.url, item.username, item.password, item.note, item.tags.joinToString("|"))
             sb.append(CsvUtils.buildRow(row)).append("\n")
         }
         return sb.toString()
@@ -174,19 +162,104 @@ class BackupManager(
 
     // ---- CSV import (Chrome / generic) ------------------------------------
 
-    suspend fun importChromeCsv(content: String, targetVaultId: String): ImportResult {
-        val rows = CsvUtils.parse(content)
-        if (rows.isEmpty()) return ImportResult(0, 0, 0, listOf("CSV 文件为空"))
-        if (rows.size > MAX_CSV_ROWS) {
-            return ImportResult(0, 0, 0, listOf("CSV 中的项目数量过多"))
+    suspend fun previewChromeCsv(content: String, targetVaultId: String): ImportPreview {
+        val prepared = prepareCsvImport(content, targetVaultId)
+        return buildPreview(prepared)
+    }
+
+    suspend fun importChromeCsv(
+        content: String,
+        targetVaultId: String,
+        strategy: ImportConflictStrategy = ImportConflictStrategy.SKIP
+    ): ImportResult {
+        val prepared = try {
+            prepareCsvImport(content, targetVaultId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IllegalArgumentException) {
+            return ImportResult(0, 0, 0, listOf(e.message ?: "CSV 文件无效"))
+        } catch (_: Exception) {
+            return ImportResult(0, 0, 0, listOf("导入失败，请检查文件后重试"))
+        }
+        if (prepared.candidates.isEmpty()) {
+            return ImportResult(0, 0, prepared.invalidItems, listOf("没有可导入的有效项目"))
+        }
+        val effectiveTargetVaultId = resolveCsvImportVaultId(
+            prepared = prepared,
+            requestedVaultId = targetVaultId
+        )
+        val normalized = prepared.copy(
+            candidates = prepared.candidates.map { it.copy(vaultId = effectiveTargetVaultId) }
+        )
+        return importPrepared(normalized, strategy)
+    }
+
+    // ---- Import planning ---------------------------------------------------
+
+    private suspend fun prepareJsonImport(content: String, backupPassword: String): PreparedImport {
+        val data = parseBackupData(content, backupPassword)
+        validateBackup(data)?.let { throw IllegalArgumentException(it) }
+
+        val existingVaults = vaultRepository.allOnce()
+        val existingVaultIds = existingVaults.mapTo(linkedSetOf()) { it.id }
+        val backupVaultById = data.vaults.associateBy { it.id }
+        val effectiveVaultIds = linkedSetOf<String>().apply {
+            addAll(existingVaultIds)
+            addAll(data.vaults.map { it.id })
+        }
+        val fallbackVaultId = effectiveVaultIds.firstOrNull()
+        val fallbackVaultName = fallbackVaultId?.let { id ->
+            existingVaults.firstOrNull { it.id == id }?.name
+                ?: backupVaultById[id]?.name
+                ?: "默认密码库"
+        }.orEmpty()
+
+        var reroutedCount = 0
+        var invalidItems = 0
+        val candidates = mutableListOf<ImportCandidate>()
+        for (item in data.items) {
+            val targetVaultId = when {
+                item.vaultId in effectiveVaultIds -> item.vaultId
+                fallbackVaultId != null -> {
+                    reroutedCount++
+                    fallbackVaultId
+                }
+                else -> {
+                    invalidItems++
+                    null
+                }
+            } ?: continue
+            candidates += ImportCandidate(
+                vaultId = targetVaultId,
+                title = item.title,
+                username = item.username,
+                password = item.password,
+                url = item.url,
+                tags = item.tags,
+                note = item.note,
+                favorite = item.favorite
+            )
         }
 
-        // Ensure a valid destination vault exists; create one if the target is blank or was deleted.
-        val vaultId = if (targetVaultId.isNotBlank() && vaultRepository.getById(targetVaultId) != null) {
-            targetVaultId
-        } else {
-            vaultRepository.create("已导入", "lock").id
+        val warnings = buildList {
+            if (reroutedCount > 0) add("${reroutedCount} 项无法匹配原密码库，已改为导入到“$fallbackVaultName”")
         }
+        val targetLabel = when (effectiveVaultIds.size) {
+            0 -> "无可用密码库"
+            1 -> fallbackVaultName
+            else -> "多个密码库"
+        }
+        return PreparedImport("加密备份 JSON", targetLabel, candidates, invalidItems, warnings)
+    }
+
+    private suspend fun prepareCsvImport(content: String, targetVaultId: String): PreparedImport {
+        val rows = CsvUtils.parse(content)
+        if (rows.isEmpty()) throw IllegalArgumentException("CSV 文件为空")
+        if (rows.size > MAX_CSV_ROWS) throw IllegalArgumentException("CSV 中的项目数量过多")
+
+        val existingVault = targetVaultId.takeIf { it.isNotBlank() }?.let { vaultRepository.getById(it) }
+        val effectiveVaultId = existingVault?.id ?: targetVaultId.ifBlank { NEW_IMPORT_VAULT_PLACEHOLDER }
+        val targetLabel = existingVault?.name ?: "已导入（将新建）"
 
         val header = rows.first().map { it.trim().lowercase() }
         val nameIdx = header.indexOfFirst { it == "name" || it == "title" }
@@ -196,56 +269,372 @@ class BackupManager(
         val noteIdx = header.indexOfFirst { it == "note" || it == "notes" }
         val tagsIdx = header.indexOfFirst { it == "tags" }
 
-        if (passIdx < 0) {
-            return ImportResult(0, 0, 0, listOf("CSV 中缺少 “password” 列"))
-        }
+        if (passIdx < 0) throw IllegalArgumentException("CSV 中缺少 “password” 列")
 
-        var skipped = 0
-        var failed = 0
-        val errors = mutableListOf<String>()
-
-        val existing = passwordRepository.decryptedForVault(vaultId).map { it.dedupeKey() }.toMutableSet()
-        val toInsert = mutableListOf<DecryptedPassword>()
-
-        for (r in rows.drop(1)) {
+        var invalidItems = 0
+        val candidates = mutableListOf<ImportCandidate>()
+        for (row in rows.drop(1)) {
             try {
-                fun at(idx: Int) = if (idx in r.indices) r[idx].trim() else ""
+                fun at(index: Int) = if (index in row.indices) row[index].trim() else ""
                 val title = at(nameIdx).ifEmpty { at(urlIdx).ifEmpty { "已导入" } }
                 val username = at(userIdx)
                 val password = at(passIdx)
                 val url = at(urlIdx)
                 val note = at(noteIdx)
                 val tags = at(tagsIdx).split("|", ",").map { it.trim() }.filter { it.isNotEmpty() }
-
-                if (password.isEmpty() && username.isEmpty()) { failed++; continue }
-
-                val item = DecryptedPassword(
-                    id = "", vaultId = vaultId, title = title, username = username,
-                    password = password, url = url, tags = tags, note = note,
-                    strengthScore = 0, createdAt = 0, updatedAt = 0
+                if (password.isEmpty() && username.isEmpty()) {
+                    invalidItems++
+                    continue
+                }
+                candidates += ImportCandidate(
+                    vaultId = effectiveVaultId,
+                    title = title,
+                    username = username,
+                    password = password,
+                    url = url,
+                    tags = tags,
+                    note = note
                 )
-                val key = item.dedupeKey()
-                if (key in existing) { skipped++; continue }
-                existing.add(key)
-                toInsert.add(item)
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                failed++
-                errors.add("已跳过一行：${e.message}")
+            } catch (_: Exception) {
+                invalidItems++
             }
         }
 
-        val imported = passwordRepository.importDecrypted(vaultId, toInsert)
-        return ImportResult(imported, skipped, failed, errors)
+        val warnings = if (existingVault == null) listOf("当前将导入到新建密码库“已导入”") else emptyList()
+        return PreparedImport("浏览器 CSV", targetLabel, candidates, invalidItems, warnings)
     }
 
-    private fun BackupItem.toDecrypted() = DecryptedPassword(
-        id = "", vaultId = vaultId, title = title, username = username, password = password,
-        url = url, tags = tags, note = note, strengthScore = 0, createdAt = 0, updatedAt = 0,
-        favorite = favorite
-    )
+    private suspend fun buildPreview(prepared: PreparedImport): ImportPreview {
+        val existingByVault = existingIndexByVault(prepared.candidates.map { it.vaultId }.distinct())
+        var newItems = 0
+        var duplicateItems = 0
+        val sampleTitles = mutableListOf<String>()
 
-    private fun BackupItem.dedupeKey() = "${title.lowercase()}|${username.lowercase()}|$password"
-    private fun DecryptedPassword.dedupeKey() = "${title.lowercase()}|${username.lowercase()}|$password"
+        for ((vaultId, vaultItems) in prepared.candidates.groupBy { it.vaultId }) {
+            val seen = existingByVault[vaultId]
+                ?.mapValues { (_, value) -> value.toMutableList() }
+                ?.toMutableMap()
+                ?: mutableMapOf()
+            for (candidate in vaultItems) {
+                if (findMatchingExisting(seen, candidate) != null) {
+                    duplicateItems++
+                } else {
+                    indexCandidate(seen, candidate)
+                    newItems++
+                    if (sampleTitles.size < PREVIEW_SAMPLE_LIMIT) {
+                        sampleTitles += candidate.title.ifBlank { candidate.url.ifBlank { "未命名项目" } }
+                    }
+                }
+            }
+        }
+
+        return ImportPreview(
+            formatLabel = prepared.formatLabel,
+            targetLabel = prepared.targetLabel,
+            totalItems = prepared.candidates.size + prepared.invalidItems,
+            newItems = newItems,
+            duplicateItems = duplicateItems,
+            invalidItems = prepared.invalidItems,
+            sampleTitles = sampleTitles,
+            warnings = prepared.warnings
+        )
+    }
+
+    private suspend fun importPrepared(
+        prepared: PreparedImport,
+        strategy: ImportConflictStrategy
+    ): ImportResult {
+        var imported = 0
+        var skipped = 0
+        var failed = prepared.invalidItems
+        var updated = 0
+        val errors = mutableListOf<String>()
+
+        val candidatesByVault = prepared.candidates.groupBy { it.vaultId }
+        for ((vaultId, vaultCandidates) in candidatesByVault) {
+            try {
+                val existingByKey = buildCandidateIndex(passwordRepository.decryptedForVault(vaultId))
+
+                when (strategy) {
+                    ImportConflictStrategy.SKIP -> {
+                        val seen = existingByKey
+                            .mapValues { (_, value) -> value.toMutableList() }
+                            .toMutableMap()
+                        val toInsert = mutableListOf<DecryptedPassword>()
+                        for (candidate in vaultCandidates) {
+                            if (findMatchingExisting(seen, candidate) != null) {
+                                skipped++
+                            } else {
+                                toInsert += candidate.toDecrypted()
+                                indexCandidate(seen, candidate)
+                            }
+                        }
+                        imported += insertCandidates(vaultId, toInsert, errors).also { if (it < toInsert.size) failed += toInsert.size - it }
+                    }
+
+                    ImportConflictStrategy.KEEP_BOTH -> {
+                        val toInsert = vaultCandidates.map { it.toDecrypted() }
+                        imported += insertCandidates(vaultId, toInsert, errors).also { if (it < toInsert.size) failed += toInsert.size - it }
+                    }
+
+                    ImportConflictStrategy.OVERWRITE -> {
+                        val seen = existingByKey
+                            .mapValues { (_, value) -> value.toMutableList() }
+                            .toMutableMap()
+                        val pendingCreates = linkedMapOf<String, DecryptedPassword>()
+                        val updatedIds = mutableSetOf<String>()
+                        var tempCounter = 0
+
+                        for (candidate in vaultCandidates) {
+                            val existing = findMatchingExisting(seen, candidate)
+                            if (existing != null) {
+                                if (existing.id.startsWith(PENDING_IMPORT_ID_PREFIX)) {
+                                    val replacement = candidate.toDecrypted(existing.id)
+                                    pendingCreates[existing.id] = replacement
+                                    removeIndexedExisting(seen, existing.id)
+                                    indexExisting(seen, replacement)
+                                } else {
+                                    try {
+                                        passwordRepository.save(
+                                            id = existing.id,
+                                            vaultId = vaultId,
+                                            title = candidate.title,
+                                            username = candidate.username,
+                                            password = candidate.password,
+                                            url = candidate.url,
+                                            tags = candidate.tags,
+                                            note = candidate.note,
+                                            favorite = candidate.favorite
+                                        )
+                                        if (updatedIds.add(existing.id)) updated++
+                                        removeIndexedExisting(seen, existing.id)
+                                        indexExisting(seen, candidate.toDecrypted(existing.id))
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        failed++
+                                        errors += "部分项目覆盖失败"
+                                    }
+                                }
+                            } else {
+                                val pendingId = "$PENDING_IMPORT_ID_PREFIX:$vaultId:${tempCounter++}"
+                                val pending = candidate.toDecrypted(pendingId)
+                                pendingCreates[pendingId] = pending
+                                indexExisting(seen, pending)
+                            }
+                        }
+                        val toInsert = pendingCreates.values.toList()
+                        imported += insertCandidates(vaultId, toInsert, errors).also { if (it < toInsert.size) failed += toInsert.size - it }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                failed += vaultCandidates.size
+                errors += "密码库导入失败"
+            }
+        }
+
+        return ImportResult(
+            imported = imported,
+            skippedDuplicates = skipped,
+            failed = failed,
+            errors = errors,
+            updated = updated
+        )
+    }
+
+    private suspend fun insertCandidates(
+        vaultId: String,
+        items: List<DecryptedPassword>,
+        errors: MutableList<String>
+    ): Int = try {
+        if (items.isEmpty()) 0 else passwordRepository.importDecrypted(vaultId, items)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        errors += "部分项目导入失败"
+        0
+    }
+
+    private suspend fun existingIndexByVault(
+        vaultIds: List<String>
+    ): Map<String, Map<String, List<DecryptedPassword>>> {
+        val result = mutableMapOf<String, Map<String, List<DecryptedPassword>>>()
+        for (vaultId in vaultIds.distinct().filterNot { it == NEW_IMPORT_VAULT_PLACEHOLDER }) {
+            result[vaultId] = buildCandidateIndex(passwordRepository.decryptedForVault(vaultId))
+        }
+        return result
+    }
+
+    private suspend fun resolveCsvImportVaultId(
+        prepared: PreparedImport,
+        requestedVaultId: String
+    ): String {
+        val preparedVaultId = prepared.candidates.firstOrNull()?.vaultId.orEmpty()
+        if (preparedVaultId.isNotBlank() &&
+            preparedVaultId != NEW_IMPORT_VAULT_PLACEHOLDER &&
+            vaultRepository.getById(preparedVaultId) != null
+        ) {
+            return preparedVaultId
+        }
+        if (requestedVaultId.isNotBlank() && vaultRepository.getById(requestedVaultId) != null) {
+            return requestedVaultId
+        }
+        return vaultRepository.create("已导入", "lock").id
+    }
+
+    private fun parseBackupData(content: String, backupPassword: String): BackupData {
+        val wrapper = gson.fromJson(content, EncryptedBackup::class.java)
+        if (wrapper != null && wrapper.format == "offline-vault-backup" && wrapper.encrypted) {
+            val salt = CryptoManager.decode(wrapper.salt)
+            val iterations = CryptoManager.requireValidIterations(
+                if (wrapper.iterations > 0) wrapper.iterations
+                else CryptoManager.LEGACY_PBKDF2_ITERATIONS
+            )
+            val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
+            val plainBytes = CryptoManager.decrypt(key, CryptoManager.decode(wrapper.data))
+            val plain = try {
+                String(plainBytes, Charsets.UTF_8)
+            } finally {
+                plainBytes.fill(0)
+            }
+            return gson.fromJson(plain, BackupData::class.java)
+                ?: throw IllegalArgumentException("备份为空或格式无效")
+        }
+        return gson.fromJson(content, BackupData::class.java)
+            ?: throw IllegalArgumentException("备份为空或格式无效")
+    }
+
+    private fun validateBackup(data: BackupData): String? = try {
+        when {
+            data.vaults.size > MAX_IMPORT_VAULTS -> "备份中的密码库数量过多"
+            data.items.size > MAX_IMPORT_ITEMS -> "备份中的项目数量过多"
+            data.vaults.map { it.id }.distinct().size != data.vaults.size -> "备份中存在重复的密码库标识"
+            data.vaults.any { it.id.isBlank() || it.name.isBlank() } -> "备份中包含无效的密码库"
+            data.items.any { it.vaultId.isBlank() } -> "备份中包含无效的项目"
+            else -> null
+        }
+    } catch (_: Exception) {
+        // Gson can assign null to Kotlin non-null properties in malformed external JSON.
+        "备份结构无效"
+    }
+
+    private fun DecryptedPassword.matchKeys(): Set<String> =
+        buildMatchKeys(title, username, password, url)
+
+    private fun buildCandidateIndex(items: List<DecryptedPassword>): MutableMap<String, MutableList<DecryptedPassword>> {
+        val index = linkedMapOf<String, MutableList<DecryptedPassword>>()
+        items.forEach { indexExisting(index, it) }
+        return index
+    }
+
+    private fun indexExisting(
+        index: MutableMap<String, MutableList<DecryptedPassword>>,
+        item: DecryptedPassword
+    ) {
+        item.matchKeys().forEach { key ->
+            index.getOrPut(key) { mutableListOf() }.apply {
+                if (none { it.id == item.id }) add(item)
+            }
+        }
+    }
+
+    private fun removeIndexedExisting(
+        index: MutableMap<String, MutableList<DecryptedPassword>>,
+        id: String
+    ) {
+        val keysToRemove = mutableListOf<String>()
+        index.forEach { (key, value) ->
+            value.removeAll { it.id == id }
+            if (value.isEmpty()) keysToRemove += key
+        }
+        keysToRemove.forEach(index::remove)
+    }
+
+    private fun indexCandidate(
+        index: MutableMap<String, MutableList<DecryptedPassword>>,
+        candidate: ImportCandidate
+    ) {
+        val temp = candidate.toDecrypted()
+        candidate.matchKeys().forEach { key ->
+            index.getOrPut(key) { mutableListOf() }.add(temp)
+        }
+    }
+
+    private fun findMatchingExisting(
+        index: Map<String, List<DecryptedPassword>>,
+        candidate: ImportCandidate
+    ): DecryptedPassword? {
+        val keyed = candidate.matchKeys()
+            .flatMap { index[it].orEmpty() }
+            .distinctBy { it.id.ifBlank { "${it.title}|${it.username}|${it.url}|${it.password}" } }
+        return keyed.firstOrNull { isSameCredential(it, candidate) }
+    }
+
+    private fun isSameCredential(existing: DecryptedPassword, candidate: ImportCandidate): Boolean {
+        val existingUser = existing.username.normalizedUser()
+        val candidateUser = candidate.username.normalizedUser()
+        if (existingUser.isNotEmpty() && candidateUser.isNotEmpty() && existingUser != candidateUser) return false
+
+        val existingHost = comparableHost(existing.url)
+        val candidateHost = comparableHost(candidate.url)
+        if (existingHost != null && candidateHost != null && existingHost == candidateHost) return true
+
+        val existingTitle = existing.title.normalizedTitle()
+        val candidateTitle = candidate.title.normalizedTitle()
+        if (existingTitle.isNotEmpty() && candidateTitle.isNotEmpty()) {
+            if (existingTitle == candidateTitle) return true
+            if (existingTitle.contains(candidateTitle) || candidateTitle.contains(existingTitle)) return true
+        }
+
+        val sharedTokens = identifierTokens(existing.title, existing.url)
+            .intersect(identifierTokens(candidate.title, candidate.url))
+        if (sharedTokens.isNotEmpty() && (existingUser.isNotEmpty() || candidateUser.isNotEmpty())) return true
+
+        return existingUser.isEmpty() && candidateUser.isEmpty() &&
+            existing.password.trim().isNotEmpty() &&
+            existing.password.trim() == candidate.password.trim() &&
+            existingHost != null &&
+            existingHost == candidateHost
+    }
+
+    private fun buildMatchKeys(title: String, username: String, password: String, url: String): Set<String> {
+        val user = username.normalizedUser()
+        val host = comparableHost(url)
+        val normalizedTitle = title.normalizedTitle()
+        val tokens = identifierTokens(title, url)
+        return buildSet {
+            if (user.isNotEmpty() && host != null) add("host:$host|user:$user")
+            if (user.isNotEmpty() && normalizedTitle.isNotEmpty()) add("title:$normalizedTitle|user:$user")
+            if (user.isNotEmpty()) tokens.forEach { add("token:$it|user:$user") }
+            if (user.isEmpty() && host != null && normalizedTitle.isNotEmpty()) add("host:$host|title:$normalizedTitle")
+            if (user.isEmpty() && host != null && password.trim().isNotEmpty()) add("host:$host|pw:${password.trim()}")
+        }
+    }
+
+    private fun comparableHost(url: String): String? =
+        OriginMatcher.hostFromUrl(url)?.removePrefix("www.")
+
+    private fun String.normalizedUser(): String = trim().lowercase()
+
+    private fun String.normalizedTitle(): String =
+        lowercase()
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+
+    private fun identifierTokens(title: String, url: String): Set<String> {
+        val stopWords = setOf("www", "com", "net", "org", "app", "login", "secure", "account", "online", "site", "web")
+        val titleTokens = title.normalizedTitle()
+            .split(' ')
+            .filter { it.length >= 3 && it !in stopWords }
+        val hostTokens = comparableHost(url)
+            ?.split('.', '-')
+            ?.filter { it.length >= 3 && it !in stopWords }
+            .orEmpty()
+        return (titleTokens + hostTokens).toSet()
+    }
 }

@@ -15,10 +15,14 @@ import android.os.PersistableBundle
  */
 object ClipboardHelper {
 
+    private const val DEFAULT_SENSITIVE_CLEAR_SECONDS = 10
+
     private val handler = Handler(Looper.getMainLooper())
     private var pendingClear: Runnable? = null
 
     fun copySensitive(context: Context, label: String, value: String, clearAfterSeconds: Int) {
+        val effectiveClearSeconds =
+            if (clearAfterSeconds > 0) clearAfterSeconds else DEFAULT_SENSITIVE_CLEAR_SECONDS
         val appContext = context.applicationContext
         val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, value)
@@ -31,11 +35,9 @@ object ClipboardHelper {
 
         pendingClear?.let { handler.removeCallbacks(it) }
         pendingClear = null
-        if (clearAfterSeconds > 0) {
-            val runnable = Runnable { clear(appContext, value) }
-            pendingClear = runnable
-            handler.postDelayed(runnable, clearAfterSeconds * 1000L)
-        }
+        val runnable = Runnable { clear(appContext, value) }
+        pendingClear = runnable
+        handler.postDelayed(runnable, effectiveClearSeconds * 1000L)
     }
 
     fun copyPlain(context: Context, label: String, value: String) {

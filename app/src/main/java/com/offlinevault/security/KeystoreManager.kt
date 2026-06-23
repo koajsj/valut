@@ -1,5 +1,6 @@
 package com.offlinevault.security
 
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import javax.crypto.Cipher
@@ -41,6 +42,11 @@ object KeystoreManager {
             .setKeySize(256)
             .setUserAuthenticationRequired(true)
             .setInvalidatedByBiometricEnrollment(true)
+            .apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+                }
+            }
             .build()
         generator.init(spec)
         return generator.generateKey()

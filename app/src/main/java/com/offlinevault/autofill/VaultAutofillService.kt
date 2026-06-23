@@ -1,5 +1,6 @@
 package com.offlinevault.autofill
 
+import android.app.PendingIntent
 import android.app.assist.AssistStructure
 import android.content.Intent
 import android.os.CancellationSignal
@@ -56,6 +57,8 @@ class VaultAutofillService : AutofillService() {
                 !packageName.isNullOrBlank() -> OriginMatcher.appIdentifier(packageName)
                 else -> null
             }
+
+        fun fillableIds(): List<AutofillId> = listOfNotNull(usernameId, passwordId)
     }
 
     override fun onFillRequest(
@@ -96,6 +99,10 @@ class VaultAutofillService : AutofillService() {
                 var hasContent = false
                 for (item in matches) {
                     builder.addDataset(buildDataset(item, parsed))
+                    hasContent = true
+                }
+                buildManualSearchPresentation(parsed)?.let { (intentSender, presentation) ->
+                    builder.setAuthentication(parsed.fillableIds().toTypedArray(), intentSender, presentation)
                     hasContent = true
                 }
                 if (saveInfo != null) {
@@ -204,9 +211,15 @@ class VaultAutofillService : AutofillService() {
     // ---- Dataset building --------------------------------------------------
 
     private fun buildDataset(item: DecryptedPassword, parsed: ParsedFields): Dataset {
+        val targetLabel = OriginMatcher.targetLabel(parsed.webDomain, parsed.packageName)
         val presentation = RemoteViews(packageName, R.layout.autofill_item).apply {
             setTextViewText(R.id.autofill_title, item.title.ifEmpty { "离线密码库" })
-            setTextViewText(R.id.autofill_subtitle, item.username.ifEmpty { item.url })
+            setTextViewText(
+                R.id.autofill_subtitle,
+                listOf(item.username.ifEmpty { item.url }, "当前：$targetLabel")
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+            )
         }
 
         val builder = Dataset.Builder(presentation)
@@ -217,6 +230,29 @@ class VaultAutofillService : AutofillService() {
             builder.setValue(it, AutofillValue.forText(item.password))
         }
         return builder.build()
+    }
+
+    private fun buildManualSearchPresentation(parsed: ParsedFields): Pair<android.content.IntentSender, RemoteViews>? {
+        if (parsed.fillableIds().isEmpty()) return null
+        val targetLabel = OriginMatcher.targetLabel(parsed.webDomain, parsed.packageName)
+        val intent = AutofillSearchActivity.buildIntent(
+            this,
+            parsed.usernameId,
+            parsed.passwordId,
+            parsed.webDomain,
+            parsed.packageName
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            targetLabel.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val presentation = RemoteViews(packageName, R.layout.autofill_item).apply {
+            setTextViewText(R.id.autofill_title, "手动搜索其他账号")
+            setTextViewText(R.id.autofill_subtitle, "当前：$targetLabel")
+        }
+        return pendingIntent.intentSender to presentation
     }
 
     // ---- Structure parsing -------------------------------------------------

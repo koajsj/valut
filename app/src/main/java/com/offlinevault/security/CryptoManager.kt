@@ -57,7 +57,14 @@ object CryptoManager {
     fun newSalt(): ByteArray = randomBytes(SALT_LENGTH)
 
     /** Generates a fresh random 256-bit Data Encryption Key. */
-    fun newDataEncryptionKey(): SecretKey = SecretKeySpec(randomBytes(AES_KEY_BITS / 8), "AES")
+    fun newDataEncryptionKey(): SecretKey {
+        val keyBytes = randomBytes(AES_KEY_BITS / 8)
+        return try {
+            SecretKeySpec(keyBytes, "AES")
+        } finally {
+            keyBytes.fill(0)
+        }
+    }
 
     /**
      * Derives a 256-bit AES key from a password and salt using PBKDF2WithHmacSHA256.

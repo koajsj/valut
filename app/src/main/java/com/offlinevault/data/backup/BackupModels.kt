@@ -35,10 +35,28 @@ data class EncryptedBackup(
     val iterations: Int = 0
 )
 
+enum class ImportConflictStrategy {
+    SKIP,
+    OVERWRITE,
+    KEEP_BOTH
+}
+
+data class ImportPreview(
+    val formatLabel: String,
+    val targetLabel: String,
+    val totalItems: Int,
+    val newItems: Int,
+    val duplicateItems: Int,
+    val invalidItems: Int,
+    val sampleTitles: List<String>,
+    val warnings: List<String> = emptyList()
+)
+
 /** Result of importing a Chrome CSV / JSON file. */
 data class ImportResult(
     val imported: Int,
     val skippedDuplicates: Int,
     val failed: Int,
-    val errors: List<String>
+    val errors: List<String>,
+    val updated: Int = 0
 )

@@ -3,6 +3,8 @@ package com.offlinevault.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.offlinevault.data.backup.BackupManager
+import com.offlinevault.data.backup.ImportConflictStrategy
+import com.offlinevault.data.backup.ImportPreview
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.data.model.PasswordEntity
 import com.offlinevault.data.preferences.SecurityPreferences
@@ -37,10 +39,15 @@ class PasswordListViewModel(
     private val anquanPianhao: SecurityPreferences
 ) : ViewModel() {
 
+    data class ImportPreviewPayload(
+        val preview: ImportPreview? = null,
+        val errorMessage: String? = null
+    )
+
     /** Persisted: user permanently hid the autofill enablement banner. */
     val autofillBannerHidden: StateFlow<Boolean> =
         anquanPianhao.autofillBannerDismissedFlow
-            .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun buZaiTishiZidongTianchong() {
         viewModelScope.launch {
@@ -183,10 +190,46 @@ class PasswordListViewModel(
     /** Current vault id, or empty if not loaded yet. */
     fun dangqianMimakuId(): String = mimakuId.value
 
-    fun daoruJson(neirong: String, mima: String, huidiao: (ImportResult) -> Unit) {
+    fun yulanJsonDaoru(neirong: String, mima: String, huidiao: (ImportPreviewPayload) -> Unit) {
         viewModelScope.launch {
             val jieguo = try {
-                withContext(Dispatchers.Default) { beifenGuanli.importJsonBackup(neirong, mima) }
+                ImportPreviewPayload(
+                    preview = withContext(Dispatchers.Default) { beifenGuanli.previewJsonBackup(neirong, mima) }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ImportPreviewPayload(errorMessage = "无法预览备份：密码错误、格式无效或文件已损坏")
+            }
+            huidiao(jieguo)
+        }
+    }
+
+    fun yulanCsvDaoru(neirong: String, huidiao: (ImportPreviewPayload) -> Unit) {
+        viewModelScope.launch {
+            val jieguo = try {
+                val mubiao = mimakuId.value.ifEmpty { mimakuCangku.ensureDefault().id }
+                ImportPreviewPayload(
+                    preview = withContext(Dispatchers.Default) { beifenGuanli.previewChromeCsv(neirong, mubiao) }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ImportPreviewPayload(errorMessage = e.message ?: "无法预览 CSV")
+            }
+            huidiao(jieguo)
+        }
+    }
+
+    fun daoruJson(
+        neirong: String,
+        mima: String,
+        celue: ImportConflictStrategy = ImportConflictStrategy.SKIP,
+        huidiao: (ImportResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val jieguo = try {
+                withContext(Dispatchers.Default) { beifenGuanli.importJsonBackup(neirong, mima, celue) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -196,11 +239,15 @@ class PasswordListViewModel(
         }
     }
 
-    fun daoruCsv(neirong: String, huidiao: (ImportResult) -> Unit) {
+    fun daoruCsv(
+        neirong: String,
+        celue: ImportConflictStrategy = ImportConflictStrategy.SKIP,
+        huidiao: (ImportResult) -> Unit
+    ) {
         viewModelScope.launch {
             val jieguo = try {
                 val mubiao = mimakuId.value.ifEmpty { mimakuCangku.ensureDefault().id }
-                withContext(Dispatchers.Default) { beifenGuanli.importChromeCsv(neirong, mubiao) }
+                withContext(Dispatchers.Default) { beifenGuanli.importChromeCsv(neirong, mubiao, celue) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

@@ -40,6 +40,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".autofill.AutofillSearchActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OfflineVault.Starting" />
+
         <!-- Offline Autofill service -->
         <service
             android:name=".autofill.VaultAutofillService"

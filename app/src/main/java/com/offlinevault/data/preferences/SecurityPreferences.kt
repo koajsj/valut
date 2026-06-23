@@ -23,6 +23,16 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 /** App level (non-secret-bearing key material + user settings) persistence backed by DataStore. */
 class SecurityPreferences(private val context: Context) {
 
+    companion object {
+        private const val DEFAULT_AUTO_LOCK_SECONDS = 60
+        private const val MIN_AUTO_LOCK_SECONDS = 0
+        private const val MAX_AUTO_LOCK_SECONDS = 60 * 60
+
+        private const val DEFAULT_CLIPBOARD_CLEAR_SECONDS = 10
+        private const val MIN_CLIPBOARD_CLEAR_SECONDS = 5
+        private const val MAX_CLIPBOARD_CLEAR_SECONDS = 60
+    }
+
     private object Keys {
         val MASTER_SALT = stringPreferencesKey("master_salt")
         val RECOVERY_SALT = stringPreferencesKey("recovery_salt")
@@ -193,13 +203,16 @@ class SecurityPreferences(private val context: Context) {
     // Auto-lock delay in SECONDS. Older installs stored whole minutes under AUTO_LOCK_MINUTES; when the
     // new key is absent we fall back to that value (× 60) so existing users keep their setting.
     private fun Preferences.autoLockSeconds(): Int =
-        this[Keys.AUTO_LOCK_SECONDS] ?: ((this[Keys.AUTO_LOCK_MINUTES] ?: 1) * 60)
+        (this[Keys.AUTO_LOCK_SECONDS] ?: ((this[Keys.AUTO_LOCK_MINUTES] ?: 1) * 60))
+            .coerceIn(MIN_AUTO_LOCK_SECONDS, MAX_AUTO_LOCK_SECONDS)
 
     val autoLockSecondsFlow: Flow<Int> =
-        context.dataStore.data.map { it.autoLockSeconds() }.catch { emit(60) }
+        context.dataStore.data.map { it.autoLockSeconds() }.catch { emit(DEFAULT_AUTO_LOCK_SECONDS) }
 
     suspend fun setAutoLockSeconds(value: Int) {
-        context.dataStore.edit { it[Keys.AUTO_LOCK_SECONDS] = value }
+        context.dataStore.edit {
+            it[Keys.AUTO_LOCK_SECONDS] = value.coerceIn(MIN_AUTO_LOCK_SECONDS, MAX_AUTO_LOCK_SECONDS)
+        }
     }
 
     suspend fun autoLockSecondsValue(): Int =
@@ -222,11 +235,20 @@ class SecurityPreferences(private val context: Context) {
         context.dataStore.edit { it[Keys.SCREENSHOT_BLOCKED] = value }
     }
 
+    private fun sanitizeClipboardClearSeconds(value: Int): Int =
+        if (value < MIN_CLIPBOARD_CLEAR_SECONDS) DEFAULT_CLIPBOARD_CLEAR_SECONDS
+        else value.coerceAtMost(MAX_CLIPBOARD_CLEAR_SECONDS)
+
+    private fun Preferences.clipboardClearSeconds(): Int =
+        sanitizeClipboardClearSeconds(this[Keys.CLIPBOARD_CLEAR_SECONDS] ?: DEFAULT_CLIPBOARD_CLEAR_SECONDS)
+
     val clipboardClearSecondsFlow: Flow<Int> =
-        context.dataStore.data.map { it[Keys.CLIPBOARD_CLEAR_SECONDS] ?: 10 }.catch { emit(10) }
+        context.dataStore.data.map { it.clipboardClearSeconds() }.catch { emit(DEFAULT_CLIPBOARD_CLEAR_SECONDS) }
 
     suspend fun setClipboardClearSeconds(value: Int) {
-        context.dataStore.edit { it[Keys.CLIPBOARD_CLEAR_SECONDS] = value }
+        context.dataStore.edit {
+            it[Keys.CLIPBOARD_CLEAR_SECONDS] = sanitizeClipboardClearSeconds(value)
+        }
     }
 
     /** Whether the user permanently dismissed the home-screen autofill enablement banner. */

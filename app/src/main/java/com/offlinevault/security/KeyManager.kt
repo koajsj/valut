@@ -37,6 +37,8 @@ class KeyManager(
         recoveryAnswer: String,
         mnemonicPhrase: String
     ) {
+        require(recoveryQuestion.isNotBlank()) { "安全问题不能为空" }
+        require(recoveryAnswer.isNotBlank()) { "安全问题答案不能为空" }
         val dek = CryptoManager.newDataEncryptionKey()
 
         val masterSalt = CryptoManager.newSalt()
@@ -206,6 +208,8 @@ class KeyManager(
 
     /** Replace the security question / answer. Requires the vault to be currently unlocked. */
     suspend fun changeRecovery(question: String, answer: String) {
+        require(question.isNotBlank()) { "安全问题不能为空" }
+        require(answer.isNotBlank()) { "安全问题答案不能为空" }
         val dek = SessionManager.requireKey()
         val salt = CryptoManager.newSalt()
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS

@@ -3,6 +3,8 @@ package com.offlinevault.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.offlinevault.data.backup.BackupManager
+import com.offlinevault.data.backup.ImportConflictStrategy
+import com.offlinevault.data.backup.ImportPreview
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.data.model.VaultEntity
 import com.offlinevault.data.preferences.SecurityPreferences
@@ -36,6 +38,12 @@ class SettingsViewModel(
 
     data class ExportPayload(
         val content: String? = null,
+        val errorMessage: String? = null,
+        val validated: Boolean = false
+    )
+
+    data class ImportPreviewPayload(
+        val preview: ImportPreview? = null,
         val errorMessage: String? = null
     )
 
@@ -216,12 +224,49 @@ class SettingsViewModel(
                 ExportPayload(
                     content = withContext(Dispatchers.Default) {
                         backupManager.buildEncryptedJsonBackup(password)
-                    }
+                    },
+                    validated = true
                 )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 ExportPayload(errorMessage = "无法创建加密备份")
+            }
+            onResult(result)
+        }
+    }
+
+    fun previewJsonImport(content: String, password: String, onResult: (ImportPreviewPayload) -> Unit) {
+        viewModelScope.launch {
+            val result = try {
+                ImportPreviewPayload(
+                    preview = withContext(Dispatchers.Default) {
+                        backupManager.previewJsonBackup(content, password)
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ImportPreviewPayload(errorMessage = "无法预览备份：密码错误、格式无效或文件已损坏")
+            }
+            onResult(result)
+        }
+    }
+
+    fun previewCsvImport(content: String, vaultId: String, onResult: (ImportPreviewPayload) -> Unit) {
+        viewModelScope.launch {
+            val result = try {
+                ImportPreviewPayload(
+                    preview = withContext(Dispatchers.Default) {
+                        backupManager.previewChromeCsv(content, vaultId)
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IllegalArgumentException) {
+                ImportPreviewPayload(errorMessage = e.message ?: "无法预览 CSV")
+            } catch (_: Exception) {
+                ImportPreviewPayload(errorMessage = "无法预览 CSV")
             }
             onResult(result)
         }
@@ -242,10 +287,15 @@ class SettingsViewModel(
         }
     }
 
-    fun importJson(content: String, password: String, onResult: (ImportResult) -> Unit) {
+    fun importJson(
+        content: String,
+        password: String,
+        strategy: ImportConflictStrategy = ImportConflictStrategy.SKIP,
+        onResult: (ImportResult) -> Unit
+    ) {
         viewModelScope.launch {
             val result = try {
-                withContext(Dispatchers.Default) { backupManager.importJsonBackup(content, password) }
+                withContext(Dispatchers.Default) { backupManager.importJsonBackup(content, password, strategy) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -255,10 +305,15 @@ class SettingsViewModel(
         }
     }
 
-    fun importCsv(content: String, vaultId: String, onResult: (ImportResult) -> Unit) {
+    fun importCsv(
+        content: String,
+        vaultId: String,
+        strategy: ImportConflictStrategy = ImportConflictStrategy.SKIP,
+        onResult: (ImportResult) -> Unit
+    ) {
         viewModelScope.launch {
             val result = try {
-                withContext(Dispatchers.Default) { backupManager.importChromeCsv(content, vaultId) }
+                withContext(Dispatchers.Default) { backupManager.importChromeCsv(content, vaultId, strategy) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

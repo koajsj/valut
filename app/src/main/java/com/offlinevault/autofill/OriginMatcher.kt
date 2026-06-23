@@ -12,7 +12,7 @@ object OriginMatcher {
     fun matches(storedUrl: String, requestedDomain: String?): Boolean {
         val requestedHost = normalizeHost(requestedDomain) ?: return false
         val storedHost = hostFromUrl(storedUrl) ?: return false
-        return storedHost == requestedHost
+        return storedHost == requestedHost || comparableHost(storedHost) == comparableHost(requestedHost)
     }
 
     /** Canonical identifier stored in a credential's url field for a native app. */
@@ -32,10 +32,16 @@ object OriginMatcher {
         if (a.trim().startsWith(APP_SCHEME) || b.trim().startsWith(APP_SCHEME)) return pkgA == pkgB
         val hostA = hostFromUrl(a) ?: return a.trim().equals(b.trim(), ignoreCase = true)
         val hostB = hostFromUrl(b) ?: return false
-        return hostA == hostB
+        return hostA == hostB || comparableHost(hostA) == comparableHost(hostB)
     }
 
-    internal fun hostFromUrl(value: String): String? {
+    fun targetLabel(webDomain: String?, packageName: String?): String = when {
+        !webDomain.isNullOrBlank() -> normalizeHost(webDomain) ?: webDomain
+        !packageName.isNullOrBlank() -> packageName.trim()
+        else -> "当前目标"
+    }
+
+    fun hostFromUrl(value: String): String? {
         val trimmed = value.trim()
         if (trimmed.isEmpty()) return null
         val withScheme = if ("://" in trimmed) trimmed else "https://$trimmed"
@@ -49,4 +55,6 @@ object OriginMatcher {
             .getOrNull()
             ?.takeIf { it.isNotEmpty() && it.none(Char::isWhitespace) }
     }
+
+    private fun comparableHost(host: String): String = host.removePrefix("www.")
 }

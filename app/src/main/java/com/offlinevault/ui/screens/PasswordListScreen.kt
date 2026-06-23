@@ -77,15 +77,19 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.offlinevault.data.backup.ImportPreview
 import com.offlinevault.data.backup.ImportResult
 import com.offlinevault.data.model.PasswordEntity
 import com.offlinevault.security.LockGuard
 import com.offlinevault.security.PasswordStrengthChecker
 import com.offlinevault.ui.components.CardShape
+import com.offlinevault.ui.components.ImportPreviewDialog
+import com.offlinevault.ui.components.PasteImportDialog
 import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.RiskChip
 import com.offlinevault.utils.FileIo
 import com.offlinevault.utils.FilePickerCompat
+import com.offlinevault.utils.ImportFormatDetector
 import com.offlinevault.viewmodel.PasswordListViewModel
 import com.offlinevault.viewmodel.SortOrder
 import kotlinx.coroutines.launch
@@ -114,6 +118,9 @@ fun PasswordListScreen(
 
     var importJsonPasswordPrompt by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
+    var pendingImportAction by remember { mutableStateOf<ListPendingImportAction?>(null) }
+    var pendingImportPreview by remember { mutableStateOf<ImportPreview?>(null) }
+    var showPasteImport by remember { mutableStateOf(false) }
     var showSort by remember { mutableStateOf(false) }
     var confirmBatchDelete by remember { mutableStateOf(false) }
 
@@ -138,13 +145,48 @@ fun PasswordListScreen(
     fun toast(msg: String) = scope.launch { snackbar.showSnackbar(msg) }
     fun importToast(r: ImportResult) =
         toast(r.errors.firstOrNull()
-            ?: "已导入 ${r.imported} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
+            ?: "已导入 ${r.imported} 项，覆盖 ${r.updated} 项，跳过 ${r.skippedDuplicates} 项，失败 ${r.failed} 项")
 
     androidx.compose.runtime.LaunchedEffect(errorMessage) {
         errorMessage?.let {
             snackbar.showSnackbar(it)
             viewModel.qingchuCuowu()
         }
+    }
+
+    fun handleImportText(text: String, sourceName: String = "") {
+        if (text.isBlank()) {
+            toast("导入内容为空")
+            return
+        }
+        if (ImportFormatDetector.looksLikeCsv(sourceName, text)) {
+            viewModel.yulanCsvDaoru(text) { result ->
+                val preview = result.preview
+                if (preview != null) {
+                    pendingImportAction = ListPendingImportAction.Csv(text)
+                    pendingImportPreview = preview
+                } else {
+                    toast(result.errorMessage ?: "无法预览 CSV")
+                }
+            }
+        } else {
+            pendingImportJson = text
+            importJsonPasswordPrompt = true
+        }
+    }
+
+    fun executePendingImport(strategy: com.offlinevault.data.backup.ImportConflictStrategy) {
+        when (val action = pendingImportAction) {
+            is ListPendingImportAction.Csv -> {
+                viewModel.daoruCsv(action.content, strategy) { importToast(it) }
+            }
+            is ListPendingImportAction.Json -> {
+                viewModel.daoruJson(action.content, action.password, strategy) { importToast(it) }
+            }
+            null -> Unit
+        }
+        pendingImportAction = null
+        pendingImportPreview = null
     }
 
     fun handlePickedUri(uri: Uri?) {
@@ -157,15 +199,7 @@ fun PasswordListScreen(
                 toast("无法读取文件，或文件超过 10 MB")
                 return@launch
             }
-            val name = uri.toString().lowercase()
-            val looksCsv = name.endsWith(".csv") ||
-                (text.lineSequence().firstOrNull()?.contains(",") == true && !text.trimStart().startsWith("{"))
-            if (looksCsv) {
-                viewModel.daoruCsv(text) { importToast(it) }
-            } else {
-                pendingImportJson = text
-                importJsonPasswordPrompt = true
-            }
+            handleImportText(text, uri.toString())
         }
     }
 
@@ -191,27 +225,25 @@ fun PasswordListScreen(
         //   1. SAF OpenDocument (system DocumentsUI) — present on every stock Android 8.0+.
         //   2. ACTION_GET_CONTENT via system chooser.
         //   3. ACTION_GET_CONTENT directly (no chooser) — for ROMs whose chooser itself refuses.
-        val pickerErrors = mutableListOf<String>()
         try {
             openDocumentLauncher.launch(FilePickerCompat.importMimeTypes)
             return
-        } catch (e: Exception) {
-            pickerErrors += e.javaClass.simpleName // DocumentsUI unavailable/blocked.
+        } catch (_: Exception) {
+            // DocumentsUI unavailable/blocked.
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createFallbackImportChooser())
             return
-        } catch (e: Exception) {
-            pickerErrors += e.javaClass.simpleName
+        } catch (_: Exception) {
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createDirectGetContentIntent())
             return
-        } catch (e: Exception) {
-            pickerErrors += e.javaClass.simpleName
+        } catch (_: Exception) {
         }
         LockGuard.suppressNextBackground = false
-        toast("未找到可用的文件管理器（${pickerErrors.lastOrNull() ?: "未知"}）")
+        showPasteImport = true
+        toast("文件选择器不可用，已打开粘贴导入")
     }
 
     Scaffold(
@@ -402,13 +434,44 @@ fun PasswordListScreen(
                         importJsonPasswordPrompt = false
                         val json = pendingImportJson
                         pendingImportJson = null
-                        if (json != null) viewModel.daoruJson(json, password) { importToast(it) }
+                        if (json != null) {
+                            viewModel.yulanJsonDaoru(json, password) { result ->
+                                val preview = result.preview
+                                if (preview != null) {
+                                    pendingImportAction = ListPendingImportAction.Json(json, password)
+                                    pendingImportPreview = preview
+                                } else {
+                                    toast(result.errorMessage ?: "无法预览备份")
+                                }
+                            }
+                        }
                     },
                     enabled = password.isNotEmpty()
                 ) { Text("继续") }
             },
             dismissButton = {
                 TextButton(onClick = { importJsonPasswordPrompt = false; pendingImportJson = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (pendingImportPreview != null && pendingImportAction != null) {
+        ImportPreviewDialog(
+            preview = pendingImportPreview!!,
+            onDismiss = {
+                pendingImportPreview = null
+                pendingImportAction = null
+            },
+            onConfirm = { strategy -> executePendingImport(strategy) }
+        )
+    }
+
+    if (showPasteImport) {
+        PasteImportDialog(
+            onDismiss = { showPasteImport = false },
+            onImport = { content ->
+                showPasteImport = false
+                handleImportText(content)
             }
         )
     }
@@ -429,6 +492,11 @@ fun PasswordListScreen(
             dismissButton = { TextButton(onClick = { confirmBatchDelete = false }) { Text("取消") } }
         )
     }
+}
+
+private sealed interface ListPendingImportAction {
+    data class Json(val content: String, val password: String) : ListPendingImportAction
+    data class Csv(val content: String) : ListPendingImportAction
 }
 
 @Composable
