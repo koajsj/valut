@@ -51,6 +51,9 @@ class SettingsViewModel(
     val lockOnScreenOff: StateFlow<Boolean> =
         prefs.lockOnScreenOffFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val healthCheckEnabled: StateFlow<Boolean> =
+        prefs.healthCheckEnabledFlow.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     val clipboardClearSeconds: StateFlow<Int> =
         prefs.clipboardClearSecondsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 10)
 
@@ -85,6 +88,10 @@ class SettingsViewModel(
 
     fun setLockOnScreenOff(value: Boolean, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
         onResult(runAction { prefs.setLockOnScreenOff(value) })
+    }
+
+    fun setHealthCheckEnabled(value: Boolean, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(runAction { prefs.setHealthCheckEnabled(value) })
     }
 
     fun setClipboardSeconds(value: Int, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {

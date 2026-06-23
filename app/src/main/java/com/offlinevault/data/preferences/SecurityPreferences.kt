@@ -48,6 +48,7 @@ class SecurityPreferences(private val context: Context) {
         val SCREENSHOT_BLOCKED = booleanPreferencesKey("screenshot_blocked")
         val CLIPBOARD_CLEAR_SECONDS = intPreferencesKey("clipboard_clear_seconds")
         val AUTOFILL_BANNER_DISMISSED = booleanPreferencesKey("autofill_banner_dismissed")
+        val HEALTH_CHECK_ENABLED = booleanPreferencesKey("health_check_enabled")
 
         val FAILED_ATTEMPTS = intPreferencesKey("failed_attempts")
         val LAST_FAILED_AT = longPreferencesKey("last_failed_at")
@@ -228,6 +229,14 @@ class SecurityPreferences(private val context: Context) {
 
     suspend fun setAutofillBannerDismissed(value: Boolean) {
         context.dataStore.edit { it[Keys.AUTOFILL_BANNER_DISMISSED] = value }
+    }
+
+    /** Whether the password health-check feature is shown. Default on; users can hide it. */
+    val healthCheckEnabledFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.HEALTH_CHECK_ENABLED] ?: true }.catch { emit(true) }
+
+    suspend fun setHealthCheckEnabled(value: Boolean) {
+        context.dataStore.edit { it[Keys.HEALTH_CHECK_ENABLED] = value }
     }
 
     // ---- Failed unlock tracking (brute force delay) ------------------------

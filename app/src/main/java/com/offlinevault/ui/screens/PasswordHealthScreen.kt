@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.offlinevault.ui.components.SectionCard
 import com.offlinevault.ui.theme.RiskHigh
-import com.offlinevault.ui.theme.RiskLow
 import com.offlinevault.ui.theme.RiskMedium
 import com.offlinevault.viewmodel.PasswordHealthViewModel
 
@@ -116,7 +115,7 @@ fun PasswordHealthScreen(
                     IssueSection(
                         title = "长期未更新",
                         description = "超过 180 天未修改，建议定期更换重要账号的密码。",
-                        color = RiskMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         entries = report.stale,
                         onOpenItem = onOpenItem
                     )
@@ -136,7 +135,8 @@ private fun SummaryCard(report: PasswordHealthViewModel.HealthReport) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Stat("弱密码", report.weak.size, RiskHigh)
                 Stat("重复", report.reused.size, RiskMedium)
-                Stat("久未更新", report.stale.size, RiskLow)
+                // Stale is the least severe and purely informational — neutral, not "safe green".
+                Stat("久未更新", report.stale.size, MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

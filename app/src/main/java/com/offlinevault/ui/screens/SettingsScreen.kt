@@ -78,6 +78,7 @@ fun SettingsScreen(
     val autoLock by viewModel.autoLockMinutes.collectAsStateWithLifecycle()
     val screenshotBlocked by viewModel.screenshotBlocked.collectAsStateWithLifecycle()
     val lockOnScreenOff by viewModel.lockOnScreenOff.collectAsStateWithLifecycle()
+    val healthCheckEnabled by viewModel.healthCheckEnabled.collectAsStateWithLifecycle()
     val clipboardSeconds by viewModel.clipboardClearSeconds.collectAsStateWithLifecycle()
     val recoveryQuestion by viewModel.recoveryQuestion.collectAsStateWithLifecycle()
     val mnemonicEnabled by viewModel.mnemonicEnabled.collectAsStateWithLifecycle()
@@ -415,7 +416,18 @@ fun SettingsScreen(
             SectionHeader("工具")
             SectionCard {
                 Column {
-                    ClickSetting("密码安全体检", "检查弱密码、重复使用和长期未更新") { onOpenHealth() }
+                    ToggleSetting(
+                        title = "密码安全体检",
+                        subtitle = "检查弱密码、重复使用和长期未更新；关闭后不再显示",
+                        checked = healthCheckEnabled,
+                        onChange = { enabled ->
+                            viewModel.setHealthCheckEnabled(enabled) { ok -> if (!ok) toast("设置失败") }
+                        }
+                    )
+                    if (healthCheckEnabled) {
+                        SettingDivider()
+                        ClickSetting("查看体检报告", "弱密码、重复使用、长期未更新") { onOpenHealth() }
+                    }
                     SettingDivider()
                     ClickSetting("回收站", "已删除的密码可在此恢复") { onOpenTrash() }
                 }
