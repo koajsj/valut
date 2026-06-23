@@ -143,18 +143,21 @@ class BackupManager(
 
     // ---- CSV export -------------------------------------------------------
 
-    suspend fun buildCsvForVault(vaultId: String): String {
+    /**
+     * Builds CSV for a vault. [slim] = true emits only the browser-compatible
+     * name,url,username,password columns (easy to import into Chrome/Edge); otherwise the full
+     * format including note and tags is produced.
+     */
+    suspend fun buildCsvForVault(vaultId: String, slim: Boolean = false): String {
         val items = passwordRepository.decryptedForVault(vaultId)
         val sb = StringBuilder()
-        sb.append(CsvUtils.buildRow(listOf("name", "url", "username", "password", "note", "tags")))
-        sb.append("\n")
+        val header = if (slim) listOf("name", "url", "username", "password")
+        else listOf("name", "url", "username", "password", "note", "tags")
+        sb.append(CsvUtils.buildRow(header)).append("\n")
         for (it in items) {
-            sb.append(
-                CsvUtils.buildRow(
-                    listOf(it.title, it.url, it.username, it.password, it.note, it.tags.joinToString("|"))
-                )
-            )
-            sb.append("\n")
+            val row = if (slim) listOf(it.title, it.url, it.username, it.password)
+            else listOf(it.title, it.url, it.username, it.password, it.note, it.tags.joinToString("|"))
+            sb.append(CsvUtils.buildRow(row)).append("\n")
         }
         return sb.toString()
     }

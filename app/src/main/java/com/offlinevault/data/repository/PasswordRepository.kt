@@ -31,6 +31,11 @@ data class DecryptedPassword(
 
 class PasswordRepository(private val passwordDao: PasswordDao) {
 
+    companion object {
+        /** Trashed credentials are kept this many days before automatic permanent deletion. */
+        const val TRASH_RETENTION_DAYS = 30
+    }
+
     fun passwordsByVault(vaultId: String): Flow<List<PasswordEntity>> =
         // List views skip any individually corrupted row so one bad entry can't blank the whole
         // screen; the detail view still surfaces a per-item corruption error.
@@ -111,8 +116,34 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         return entity.id
     }
 
+    /** Moves a credential to the recycle bin (soft delete) instead of erasing it immediately. */
     suspend fun deleteById(id: String) {
+        passwordDao.softDelete(id, System.currentTimeMillis())
+    }
+
+    // ---- Recycle bin -------------------------------------------------------
+
+    /** Trashed credentials, newest deletion first. Corrupted rows are skipped, never crash the list. */
+    fun trashed(): Flow<List<PasswordEntity>> =
+        passwordDao.observeTrashed().map { rows -> rows.mapNotNull(::decryptMetadataOrNull) }
+
+    suspend fun restore(id: String) {
+        passwordDao.restore(id)
+    }
+
+    /** Permanently erases a single trashed (or any) row by id. */
+    suspend fun permanentlyDelete(id: String) {
         passwordDao.getById(id)?.let { passwordDao.delete(it) }
+    }
+
+    suspend fun emptyTrash() {
+        passwordDao.emptyTrash()
+    }
+
+    /** Auto-purge: erase trashed rows older than [retentionDays]. Called once per unlock. */
+    suspend fun purgeExpiredTrash(retentionDays: Int = TRASH_RETENTION_DAYS) {
+        val cutoff = System.currentTimeMillis() - retentionDays * 24L * 60 * 60 * 1000
+        passwordDao.purgeTrashedOlderThan(cutoff)
     }
 
     /**

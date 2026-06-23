@@ -44,6 +44,7 @@ class SecurityPreferences(private val context: Context) {
         val BIOMETRIC_WRAPPED_DEK = stringPreferencesKey("biometric_wrapped_dek")
 
         val AUTO_LOCK_MINUTES = intPreferencesKey("auto_lock_minutes")
+        val LOCK_ON_SCREEN_OFF = booleanPreferencesKey("lock_on_screen_off")
         val SCREENSHOT_BLOCKED = booleanPreferencesKey("screenshot_blocked")
         val CLIPBOARD_CLEAR_SECONDS = intPreferencesKey("clipboard_clear_seconds")
         val AUTOFILL_BANNER_DISMISSED = booleanPreferencesKey("autofill_banner_dismissed")
@@ -196,6 +197,13 @@ class SecurityPreferences(private val context: Context) {
 
     suspend fun autoLockMinutesValue(): Int =
         context.dataStore.data.first()[Keys.AUTO_LOCK_MINUTES] ?: 1
+
+    val lockOnScreenOffFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.LOCK_ON_SCREEN_OFF] ?: false }.catch { emit(false) }
+
+    suspend fun setLockOnScreenOff(value: Boolean) {
+        context.dataStore.edit { it[Keys.LOCK_ON_SCREEN_OFF] = value }
+    }
 
     suspend fun screenshotBlockedValue(): Boolean =
         context.dataStore.data.first()[Keys.SCREENSHOT_BLOCKED] ?: true

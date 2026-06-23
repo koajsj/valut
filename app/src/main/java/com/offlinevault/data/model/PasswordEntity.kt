@@ -33,5 +33,8 @@ data class PasswordEntity(
     val encryptedNote: String = "",   // encrypted, may be empty
     val strengthScore: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    // Soft-delete marker for the recycle bin. 0 = active; otherwise the epoch-millis deletion time.
+    // Trashed rows are hidden from every normal query and auto-purged after the retention window.
+    val deletedAt: Long = 0L
 )

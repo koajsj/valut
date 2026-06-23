@@ -48,6 +48,9 @@ class SettingsViewModel(
     val screenshotBlocked: StateFlow<Boolean> =
         prefs.screenshotBlockedFlow.stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    val lockOnScreenOff: StateFlow<Boolean> =
+        prefs.lockOnScreenOffFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     val clipboardClearSeconds: StateFlow<Int> =
         prefs.clipboardClearSecondsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 10)
 
@@ -78,6 +81,10 @@ class SettingsViewModel(
 
     fun setScreenshotBlocked(value: Boolean, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
         onResult(runAction { prefs.setScreenshotBlocked(value) })
+    }
+
+    fun setLockOnScreenOff(value: Boolean, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(runAction { prefs.setLockOnScreenOff(value) })
     }
 
     fun setClipboardSeconds(value: Int, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
@@ -213,11 +220,11 @@ class SettingsViewModel(
         }
     }
 
-    fun buildCsv(vaultId: String, onResult: (ExportPayload) -> Unit) {
+    fun buildCsv(vaultId: String, slim: Boolean, onResult: (ExportPayload) -> Unit) {
         viewModelScope.launch {
             val result = try {
                 ExportPayload(
-                    content = withContext(Dispatchers.Default) { backupManager.buildCsvForVault(vaultId) }
+                    content = withContext(Dispatchers.Default) { backupManager.buildCsvForVault(vaultId, slim) }
                 )
             } catch (e: CancellationException) {
                 throw e

@@ -41,10 +41,12 @@ import com.offlinevault.security.LockGuard
 import com.offlinevault.security.SessionManager
 import com.offlinevault.ui.screens.PasswordDetailScreen
 import com.offlinevault.ui.screens.PasswordEditScreen
+import com.offlinevault.ui.screens.PasswordHealthScreen
 import com.offlinevault.ui.screens.PasswordListScreen
 import com.offlinevault.ui.screens.RecoverScreen
 import com.offlinevault.ui.screens.SettingsScreen
 import com.offlinevault.ui.screens.SetupScreen
+import com.offlinevault.ui.screens.TrashScreen
 import com.offlinevault.ui.screens.UnlockScreen
 import com.offlinevault.ui.theme.OfflineVaultTheme
 import com.offlinevault.ui.theme.VaultBackground
@@ -54,8 +56,10 @@ import com.offlinevault.viewmodel.AppLockState
 import com.offlinevault.viewmodel.AuthViewModel
 import com.offlinevault.viewmodel.PasswordDetailViewModel
 import com.offlinevault.viewmodel.PasswordEditViewModel
+import com.offlinevault.viewmodel.PasswordHealthViewModel
 import com.offlinevault.viewmodel.PasswordListViewModel
 import com.offlinevault.viewmodel.SettingsViewModel
+import com.offlinevault.viewmodel.TrashViewModel
 import com.offlinevault.viewmodel.ViewModelFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -65,9 +69,30 @@ class MainActivity : FragmentActivity() {
     private val prefs by lazy { (application as OfflineVaultApp).container.securityPreferences }
     private var backgroundedAt: Long = 0L
 
+    @Volatile
+    private var lockOnScreenOff = false
+
+    // Locks the vault the instant the device screen turns off, when the user enabled that option.
+    private val screenOffReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action == android.content.Intent.ACTION_SCREEN_OFF &&
+                lockOnScreenOff && SessionManager.isUnlocked
+            ) {
+                SessionManager.lock()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        registerReceiver(screenOffReceiver, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                prefs.lockOnScreenOffFlow.collect { lockOnScreenOff = it }
+            }
+        }
 
         // Privacy hardening: exclude the whole app from the autofill framework so no third-party
         // autofill service or keyboard can capture the master password / stored credentials typed
@@ -111,6 +136,11 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(screenOffReceiver) }
+        super.onDestroy()
     }
 
     override fun onStop() {
@@ -341,7 +371,23 @@ private fun MainNavHost(
                 viewModel = settingsViewModel,
                 biometricAvailable = biometricAvailable,
                 onBack = { navController.popBackStack() },
-                onEnableBiometric = onEnableBiometric
+                onEnableBiometric = onEnableBiometric,
+                onOpenTrash = { navController.navigate("trash") },
+                onOpenHealth = { navController.navigate("health") }
+            )
+        }
+
+        composable("trash") {
+            val vm: TrashViewModel = viewModel(factory = ViewModelFactory.Factory)
+            TrashScreen(viewModel = vm, onBack = { navController.popBackStack() })
+        }
+
+        composable("health") {
+            val vm: PasswordHealthViewModel = viewModel(factory = ViewModelFactory.Factory)
+            PasswordHealthScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
+                onOpenItem = { navController.navigate("detail/$it") }
             )
         }
     }

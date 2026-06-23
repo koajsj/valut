@@ -234,7 +234,7 @@ fun PasswordDetailScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("删除密码？") },
-            text = { Text("此项目将被永久删除。") },
+            text = { Text("此项目将被移到回收站，30 天后自动永久删除。期间可在「设置 → 回收站」中恢复。") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

@@ -66,7 +66,9 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     biometricAvailable: Boolean,
     onBack: () -> Unit,
-    onEnableBiometric: (onDone: (Boolean) -> Unit) -> Unit
+    onEnableBiometric: (onDone: (Boolean) -> Unit) -> Unit,
+    onOpenTrash: () -> Unit = {},
+    onOpenHealth: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -75,6 +77,7 @@ fun SettingsScreen(
     val biometricEnabled by viewModel.biometricEnabled.collectAsStateWithLifecycle()
     val autoLock by viewModel.autoLockMinutes.collectAsStateWithLifecycle()
     val screenshotBlocked by viewModel.screenshotBlocked.collectAsStateWithLifecycle()
+    val lockOnScreenOff by viewModel.lockOnScreenOff.collectAsStateWithLifecycle()
     val clipboardSeconds by viewModel.clipboardClearSeconds.collectAsStateWithLifecycle()
     val recoveryQuestion by viewModel.recoveryQuestion.collectAsStateWithLifecycle()
     val mnemonicEnabled by viewModel.mnemonicEnabled.collectAsStateWithLifecycle()
@@ -107,6 +110,9 @@ fun SettingsScreen(
     var pendingImportCsv by remember { mutableStateOf<String?>(null) }
     var csvTargetPick by remember { mutableStateOf(false) }
     var askExportPassword by remember { mutableStateOf(false) }
+    var csvFormatPick by remember { mutableStateOf(false) }
+    // Chosen CSV export shape: true = slim browser-compatible (name,url,username,password).
+    var pendingCsvSlim by remember { mutableStateOf(false) }
 
     // ---- File launchers ----
     val saveJsonLauncher = rememberLauncherForActivityResult(
@@ -129,7 +135,7 @@ fun SettingsScreen(
         com.offlinevault.security.LockGuard.suppressNextBackground = false
         val vaultId = pendingCsvVaultId
         if (uri != null && vaultId != null) {
-            viewModel.buildCsv(vaultId) { result ->
+            viewModel.buildCsv(vaultId, pendingCsvSlim) { result ->
                 val csv = result.content
                 if (csv == null) {
                     result.errorMessage?.let(::toast)
@@ -213,6 +219,18 @@ fun SettingsScreen(
         }
         com.offlinevault.security.LockGuard.suppressNextBackground = false
         toast("未找到可用的文件管理器（${lastError?.javaClass?.simpleName ?: "未知"}）")
+    }
+
+    fun launchCsvSave(vaultId: String) {
+        pendingCsvVaultId = vaultId
+        com.offlinevault.security.LockGuard.suppressNextBackground = true
+        try {
+            saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
+        } catch (_: Exception) {
+            com.offlinevault.security.LockGuard.suppressNextBackground = false
+            pendingCsvVaultId = null
+            toast("未找到可用的文件管理器，无法导出")
+        }
     }
 
     // ---- Autofill enablement ----
@@ -320,6 +338,15 @@ fun SettingsScreen(
                     SettingDivider()
                     ClickSetting("自动锁定", autoLockLabel(autoLock)) { showAutoLock = true }
                     SettingDivider()
+                    ToggleSetting(
+                        title = "锁屏时立即锁定",
+                        subtitle = "屏幕关闭后立刻锁定密码库，不等待自动锁定时间",
+                        checked = lockOnScreenOff,
+                        onChange = { enabled ->
+                            viewModel.setLockOnScreenOff(enabled) { ok -> if (!ok) toast("设置失败") }
+                        }
+                    )
+                    SettingDivider()
                     ClickSetting(
                         "自动清除剪贴板",
                         if (clipboardSeconds == 0) "从不" else "${clipboardSeconds}秒"
@@ -381,6 +408,16 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionHeader("工具")
+            SectionCard {
+                Column {
+                    ClickSetting("密码安全体检", "检查弱密码、重复使用和长期未更新") { onOpenHealth() }
+                    SettingDivider()
+                    ClickSetting("回收站", "已删除的密码可在此恢复") { onOpenTrash() }
                 }
             }
 
@@ -593,22 +630,53 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showCsvWarning = false
-                    if (vaults.isEmpty()) {
-                        toast("没有可导出的密码库")
-                    } else if (vaults.size == 1) {
-                        pendingCsvVaultId = vaults.first().id
-                        com.offlinevault.security.LockGuard.suppressNextBackground = true
-                        try {
-                            saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
-                        } catch (_: Exception) {
-                            com.offlinevault.security.LockGuard.suppressNextBackground = false
-                            pendingCsvVaultId = null
-                            toast("未找到可用的文件管理器，无法导出")
-                        }
-                    } else csvTargetPick = true
+                    if (vaults.isEmpty()) toast("没有可导出的密码库") else csvFormatPick = true
                 }) { Text("我已了解，继续导出", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { showCsvWarning = false }) { Text("取消") } }
+        )
+    }
+
+    // ---- CSV export: choose format ----
+    if (csvFormatPick) {
+        fun proceed(slim: Boolean) {
+            pendingCsvSlim = slim
+            csvFormatPick = false
+            if (vaults.size == 1) launchCsvSave(vaults.first().id) else csvTargetPick = true
+        }
+        AlertDialog(
+            onDismissRequest = { csvFormatPick = false },
+            title = { Text("选择 CSV 格式") },
+            text = {
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { proceed(false) }.padding(vertical = 12.dp)
+                    ) {
+                        Column {
+                            Text("完整格式", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "包含备注、标签等全部字段（name, url, username, password, note, tags）。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clickable { proceed(true) }.padding(vertical = 12.dp)
+                    ) {
+                        Column {
+                            Text("浏览器精简格式", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "仅 name, url, username, password 四列，便于导入 Chrome / Edge 等浏览器。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { csvFormatPick = false }) { Text("取消") } }
         )
     }
 
@@ -625,15 +693,7 @@ fun SettingsScreen(
                     pendingImportCsv = null
                     if (csv != null) viewModel.importCsv(csv, id) { importToast(it) }
                 } else {
-                    pendingCsvVaultId = id
-                    com.offlinevault.security.LockGuard.suppressNextBackground = true
-                    try {
-                        saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
-                    } catch (_: Exception) {
-                        com.offlinevault.security.LockGuard.suppressNextBackground = false
-                        pendingCsvVaultId = null
-                        toast("未找到可用的文件管理器，无法导出")
-                    }
+                    launchCsvSave(id)
                 }
             },
             onDismiss = { csvTargetPick = false; pendingImportCsv = null }

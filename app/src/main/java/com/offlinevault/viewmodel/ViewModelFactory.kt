@@ -30,6 +30,12 @@ object ViewModelFactory {
             PasswordDetailViewModel(app().container.passwordRepository)
         }
         initializer {
+            TrashViewModel(app().container.passwordRepository)
+        }
+        initializer {
+            PasswordHealthViewModel(app().container.passwordRepository)
+        }
+        initializer {
             SettingsViewModel(
                 app().container.keyManager,
                 app().container.securityPreferences,

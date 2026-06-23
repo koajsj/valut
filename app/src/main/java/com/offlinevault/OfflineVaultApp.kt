@@ -28,6 +28,8 @@ class OfflineVaultApp : Application() {
                     try {
                         container.vaultRepository.migrateLegacyMetadata()
                         container.passwordRepository.migrateLegacyMetadata()
+                        // Permanently remove recycle-bin items past their retention window.
+                        container.passwordRepository.purgeExpiredTrash()
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
