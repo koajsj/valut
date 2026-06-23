@@ -35,7 +35,12 @@ class BackupManager(
         val salt = CryptoManager.newSalt()
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS
         val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
-        val blob = CryptoManager.encrypt(key, plainJson.toByteArray(Charsets.UTF_8))
+        val plainBytes = plainJson.toByteArray(Charsets.UTF_8)
+        val blob = try {
+            CryptoManager.encrypt(key, plainBytes)
+        } finally {
+            plainBytes.fill(0)
+        }
 
         val wrapper = EncryptedBackup(
             salt = CryptoManager.encode(salt),
@@ -57,7 +62,12 @@ class BackupManager(
                     else CryptoManager.LEGACY_PBKDF2_ITERATIONS
                 )
                 val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
-                val plain = String(CryptoManager.decrypt(key, CryptoManager.decode(wrapper.data)), Charsets.UTF_8)
+                val plainBytes = CryptoManager.decrypt(key, CryptoManager.decode(wrapper.data))
+                val plain = try {
+                    String(plainBytes, Charsets.UTF_8)
+                } finally {
+                    plainBytes.fill(0)
+                }
                 gson.fromJson(plain, BackupData::class.java)
             } else {
                 // Fall back to a plain (unencrypted) BackupData JSON.

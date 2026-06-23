@@ -30,7 +30,12 @@ object FileIo {
                     false
                 } else {
                     stream.use {
-                        it.write(content.toByteArray(Charsets.UTF_8))
+                        val bytes = content.toByteArray(Charsets.UTF_8)
+                        try {
+                            it.write(bytes)
+                        } finally {
+                            bytes.fill(0)
+                        }
                         it.flush()
                     }
                     true
@@ -45,14 +50,18 @@ object FileIo {
     internal fun readUtf8Limited(input: InputStream, maxBytes: Int = MAX_IMPORT_BYTES): String {
         val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
         val buffer = ByteArray(8 * 1024)
-        var total = 0
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            total += count
-            require(total <= maxBytes) { "导入文件超过 ${maxBytes} 字节限制" }
-            output.write(buffer, 0, count)
+        try {
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= maxBytes) { "导入文件超过 ${maxBytes} 字节限制" }
+                output.write(buffer, 0, count)
+            }
+            return output.toString(Charsets.UTF_8.name())
+        } finally {
+            buffer.fill(0)
         }
-        return output.toString(Charsets.UTF_8.name())
     }
 }

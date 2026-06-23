@@ -65,6 +65,7 @@ class PasswordDetailViewModel(
     // unless the user explicitly opens the history view.
     private val _history = MutableStateFlow<List<PasswordHistoryItem>>(emptyList())
     val history: StateFlow<List<PasswordHistoryItem>> = _history.asStateFlow()
+    private var historyJob: Job? = null
 
     fun load(passwordId: String) {
         _error.value = null
@@ -73,7 +74,8 @@ class PasswordDetailViewModel(
 
     fun loadHistory() {
         val pid = id.value ?: return
-        viewModelScope.launch {
+        if (historyJob?.isActive == true) return
+        historyJob = viewModelScope.launch {
             _history.value = try {
                 passwordRepository.history(pid)
             } catch (e: CancellationException) {

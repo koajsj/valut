@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -37,6 +38,7 @@ class PasswordHealthViewModel(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     private companion object {
         const val WEAK_SCORE_BELOW = 40
@@ -44,8 +46,9 @@ class PasswordHealthViewModel(
     }
 
     fun load() {
+        if (loadJob?.isActive == true) return
         _state.value = UiState(loading = true)
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             try {
                 val report = withContext(Dispatchers.Default) { buildReport() }
                 _state.value = UiState(loading = false, report = report)

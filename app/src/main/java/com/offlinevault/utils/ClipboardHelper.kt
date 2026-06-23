@@ -22,7 +22,7 @@ object ClipboardHelper {
         val appContext = context.applicationContext
         val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, value)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             clip.description.extras = PersistableBundle().apply {
                 putBoolean("android.content.extra.IS_SENSITIVE", true)
             }

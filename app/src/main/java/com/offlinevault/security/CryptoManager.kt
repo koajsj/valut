@@ -73,7 +73,11 @@ object CryptoManager {
         try {
             val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             val keyBytes = factory.generateSecret(spec).encoded
-            return SecretKeySpec(keyBytes, "AES")
+            try {
+                return SecretKeySpec(keyBytes, "AES")
+            } finally {
+                keyBytes.fill(0)
+            }
         } finally {
             spec.clearPassword()
             password.fill('\u0000')
@@ -100,11 +104,23 @@ object CryptoManager {
         return cipher.doFinal(ciphertext)
     }
 
-    fun encryptString(key: SecretKey, plaintext: String): String =
-        encode(encrypt(key, plaintext.toByteArray(Charsets.UTF_8)))
+    fun encryptString(key: SecretKey, plaintext: String): String {
+        val bytes = plaintext.toByteArray(Charsets.UTF_8)
+        return try {
+            encode(encrypt(key, bytes))
+        } finally {
+            bytes.fill(0)
+        }
+    }
 
-    fun decryptString(key: SecretKey, encoded: String): String =
-        String(decrypt(key, decode(encoded)), Charsets.UTF_8)
+    fun decryptString(key: SecretKey, encoded: String): String {
+        val bytes = decrypt(key, decode(encoded))
+        return try {
+            String(bytes, Charsets.UTF_8)
+        } finally {
+            bytes.fill(0)
+        }
+    }
 
     fun encode(bytes: ByteArray): String = Base64.getEncoder().withoutPadding().encodeToString(bytes)
 

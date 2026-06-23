@@ -50,9 +50,9 @@ class KeyManager(
         val mnemonicSalt = CryptoManager.newSalt()
         val mnemonicKey = mnemonicManager.deriveRecoveryKey(normalizedMnemonic, mnemonicSalt)
 
-        val masterWrapped = CryptoManager.encrypt(masterKey, dek.encoded)
-        val recoveryWrapped = CryptoManager.encrypt(recoveryKey, dek.encoded)
-        val mnemonicWrapped = CryptoManager.encrypt(mnemonicKey, dek.encoded)
+        val masterWrapped = wrapDek(masterKey, dek)
+        val recoveryWrapped = wrapDek(recoveryKey, dek)
+        val mnemonicWrapped = wrapDek(mnemonicKey, dek)
         val mnemonicVerifierHash = mnemonicManager.verifierHash(normalizedMnemonic, mnemonicSalt)
 
         prefs.saveVaultMaterial(
@@ -95,7 +95,7 @@ class KeyManager(
             )
             val dekBytes = CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64))
             prefs.resetFailures()
-            SessionManager.unlock(SecretKeySpec(dekBytes, "AES"))
+            SessionManager.unlock(secretKeyFromBytes(dekBytes))
             UnlockResult.Success
         } catch (e: AEADBadTagException) {
             prefs.recordFailure()
@@ -132,7 +132,7 @@ class KeyManager(
         }
 
         // Re-wrap the recovered DEK under a fresh master password.
-        val dek = SecretKeySpec(dekBytes, "AES")
+        val dek = secretKeyFromBytes(dekBytes)
         rewrapMaster(dek, newMasterPassword)
         prefs.resetFailures()
         return UnlockResult.Success
@@ -169,7 +169,8 @@ class KeyManager(
             return UnlockResult.Error("无法读取助记词恢复密钥，数据可能已损坏")
         }
 
-        rewrapMaster(SecretKeySpec(dekBytes, "AES"), newMasterPassword)
+        val dek = secretKeyFromBytes(dekBytes)
+        rewrapMaster(dek, newMasterPassword)
         prefs.resetFailures()
         return UnlockResult.Success
     }
@@ -197,7 +198,8 @@ class KeyManager(
         } catch (_: Exception) {
             return UnlockResult.Error("无法读取加密密钥，数据可能已损坏")
         }
-        rewrapMaster(SecretKeySpec(dekBytes, "AES"), newPassword)
+        val dek = secretKeyFromBytes(dekBytes)
+        rewrapMaster(dek, newPassword)
         prefs.resetFailures()
         return UnlockResult.Success
     }
@@ -208,7 +210,7 @@ class KeyManager(
         val salt = CryptoManager.newSalt()
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS
         val recoveryKey = CryptoManager.deriveKey(normalizeAnswer(answer).toCharArray(), salt, iterations)
-        val wrapped = CryptoManager.encrypt(recoveryKey, dek.encoded)
+        val wrapped = wrapDek(recoveryKey, dek)
         prefs.updateRecoveryMaterial(
             recoverySalt = CryptoManager.encode(salt),
             recoveryWrappedDek = CryptoManager.encode(wrapped),
@@ -229,7 +231,7 @@ class KeyManager(
 
         val salt = CryptoManager.newSalt()
         val mnemonicKey = mnemonicManager.deriveRecoveryKey(normalizedMnemonic, salt)
-        val wrapped = CryptoManager.encrypt(mnemonicKey, dek.encoded)
+        val wrapped = wrapDek(mnemonicKey, dek)
         prefs.updateMnemonicMaterial(
             mnemonicSalt = CryptoManager.encode(salt),
             mnemonicWrappedDek = CryptoManager.encode(wrapped),
@@ -256,7 +258,7 @@ class KeyManager(
         val salt = CryptoManager.newSalt()
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS
         val masterKey = CryptoManager.deriveKey(newPassword.toCharArray(), salt, iterations)
-        val wrapped = CryptoManager.encrypt(masterKey, dek.encoded)
+        val wrapped = wrapDek(masterKey, dek)
         prefs.updateMasterMaterial(
             masterSalt = CryptoManager.encode(salt),
             masterWrappedDek = CryptoManager.encode(wrapped),
@@ -273,8 +275,7 @@ class KeyManager(
                 CryptoManager.decode(saltB64),
                 prefs.masterIterations()
             )
-            val dekBytes = CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64))
-            SecretKeySpec(dekBytes, "AES")
+            secretKeyFromBytes(CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64)))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -290,7 +291,12 @@ class KeyManager(
      */
     suspend fun storeBiometricWrappedDek(authenticatedCipher: Cipher) {
         val dek = SessionManager.requireKey()
-        val ciphertext = authenticatedCipher.doFinal(dek.encoded)
+        val dekBytes = dek.encoded
+        val ciphertext = try {
+            authenticatedCipher.doFinal(dekBytes)
+        } finally {
+            dekBytes.fill(0)
+        }
         val blob = KeystoreManager.joinIv(authenticatedCipher.iv, ciphertext)
         prefs.setBiometric(enabled = true, wrappedDek = CryptoManager.encode(blob))
     }
@@ -315,7 +321,7 @@ class KeyManager(
             val (_, ciphertext) = KeystoreManager.splitIv(CryptoManager.decode(blobB64))
             val dekBytes = authenticatedCipher.doFinal(ciphertext)
             prefs.resetFailures()
-            SessionManager.unlock(SecretKeySpec(dekBytes, "AES"))
+            SessionManager.unlock(secretKeyFromBytes(dekBytes))
             UnlockResult.Success
         } catch (e: CancellationException) {
             throw e
@@ -325,6 +331,22 @@ class KeyManager(
     }
 
     fun lock() = SessionManager.lock()
+
+    private fun wrapDek(wrappingKey: SecretKey, dek: SecretKey): ByteArray {
+        val dekBytes = dek.encoded
+        return try {
+            CryptoManager.encrypt(wrappingKey, dekBytes)
+        } finally {
+            dekBytes.fill(0)
+        }
+    }
+
+    private fun secretKeyFromBytes(bytes: ByteArray): SecretKey =
+        try {
+            SecretKeySpec(bytes, "AES")
+        } finally {
+            bytes.fill(0)
+        }
 
     /** Normalises recovery answers so capitalisation / surrounding spaces don't matter. */
     private fun normalizeAnswer(answer: String): String = answer.trim().lowercase()

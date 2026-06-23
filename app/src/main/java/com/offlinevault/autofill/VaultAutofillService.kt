@@ -265,7 +265,7 @@ class VaultAutofillService : AutofillService() {
     /** Reads the text the user has currently entered into a node, if any. */
     private fun textValueOf(node: AssistStructure.ViewNode): String? {
         val value = node.autofillValue
-        val fromAutofill = if (value != null && value.isText) value.textValue?.toString() else null
+        val fromAutofill = if (value != null && value.isText) value.textValue.toString() else null
         return (fromAutofill ?: node.text?.toString())?.takeIf { it.isNotEmpty() }
     }
 

@@ -43,14 +43,27 @@ class MnemonicManager {
 
     fun verifierHash(normalizedPhrase: String, salt: ByteArray): String {
         val keyBytes = deriveRecoveryKey(normalizedPhrase, salt).encoded
-        val digest = MessageDigest.getInstance("SHA-256").digest(keyBytes)
-        return CryptoManager.encode(digest)
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256").digest(keyBytes)
+            try {
+                CryptoManager.encode(digest)
+            } finally {
+                digest.fill(0)
+            }
+        } finally {
+            keyBytes.fill(0)
+        }
     }
 
     fun verifierMatches(normalizedPhrase: String, salt: ByteArray, expectedHash: String): Boolean {
         val actual = CryptoManager.decode(verifierHash(normalizedPhrase, salt))
         val expected = CryptoManager.decode(expectedHash)
-        return MessageDigest.isEqual(actual, expected)
+        return try {
+            MessageDigest.isEqual(actual, expected)
+        } finally {
+            actual.fill(0)
+            expected.fill(0)
+        }
     }
 
     companion object {
