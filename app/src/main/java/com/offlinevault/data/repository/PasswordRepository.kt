@@ -26,7 +26,8 @@ data class DecryptedPassword(
     val note: String,
     val strengthScore: Int,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val favorite: Boolean = false
 )
 
 /** A decrypted previous password, shown in the credential's history view. */
@@ -87,7 +88,8 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
             note = note,
             strengthScore = entity.strengthScore,
             createdAt = entity.createdAt,
-            updatedAt = entity.updatedAt
+            updatedAt = entity.updatedAt,
+            favorite = entity.favorite
         )
     }
 
@@ -291,7 +293,8 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
                 encryptedNote = if (item.note.isBlank()) "" else CryptoManager.encryptString(key, item.note),
                 strengthScore = PasswordStrengthChecker.evaluate(item.password).score,
                 createdAt = now,
-                updatedAt = now
+                updatedAt = now,
+                favorite = item.favorite
             )
         }
         passwordDao.insertAll(entities)

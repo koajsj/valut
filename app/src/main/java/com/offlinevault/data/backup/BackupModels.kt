@@ -14,7 +14,9 @@ data class BackupItem(
     val password: String,
     val url: String,
     val tags: List<String>,
-    val note: String
+    val note: String,
+    // Default keeps older backups (which lack this field) importable.
+    val favorite: Boolean = false
 )
 
 data class BackupData(

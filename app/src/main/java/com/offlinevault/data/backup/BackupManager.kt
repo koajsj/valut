@@ -28,7 +28,7 @@ class BackupManager(
     suspend fun buildEncryptedJsonBackup(backupPassword: String): String {
         val vaults = vaultRepository.allOnce().map { BackupVault(it.id, it.name, it.icon) }
         val items = passwordRepository.allDecrypted().map {
-            BackupItem(it.vaultId, it.title, it.username, it.password, it.url, it.tags, it.note)
+            BackupItem(it.vaultId, it.title, it.username, it.password, it.url, it.tags, it.note, it.favorite)
         }
         val plainJson = gson.toJson(BackupData(vaults, items))
 
@@ -232,7 +232,8 @@ class BackupManager(
 
     private fun BackupItem.toDecrypted() = DecryptedPassword(
         id = "", vaultId = vaultId, title = title, username = username, password = password,
-        url = url, tags = tags, note = note, strengthScore = 0, createdAt = 0, updatedAt = 0
+        url = url, tags = tags, note = note, strengthScore = 0, createdAt = 0, updatedAt = 0,
+        favorite = favorite
     )
 
     private fun BackupItem.dedupeKey() = "${title.lowercase()}|${username.lowercase()}|$password"
