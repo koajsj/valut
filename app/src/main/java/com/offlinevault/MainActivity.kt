@@ -87,7 +87,14 @@ class MainActivity : FragmentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        registerReceiver(screenOffReceiver, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
+        // Explicit NOT_EXPORTED flag: required for context-registered receivers on Android 14+
+        // (the system still delivers this protected broadcast; only other apps are excluded).
+        androidx.core.content.ContextCompat.registerReceiver(
+            this,
+            screenOffReceiver,
+            android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 prefs.lockOnScreenOffFlow.collect { lockOnScreenOff = it }
