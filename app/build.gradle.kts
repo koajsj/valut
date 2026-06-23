@@ -92,7 +92,7 @@ android {
 
     // Make the exported Room schemas available to instrumented migration tests.
     sourceSets {
-        getByName("androidTest").assets.srcDir(files("$projectDir/schemas"))
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 }
 

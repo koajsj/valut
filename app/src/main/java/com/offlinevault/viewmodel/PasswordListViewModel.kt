@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -88,6 +89,8 @@ class PasswordListViewModel(
                 }
                 source.map { sortItems(it, q.sort) }
             }
+            // Row decryption + sorting happen off the main thread so large vaults never jank the UI.
+            .flowOn(Dispatchers.Default)
             .catch { yichang ->
                 if (yichang is CancellationException) throw yichang
                 _cuowuXinxi.value = "无法读取密码数据"
@@ -155,10 +158,11 @@ class PasswordListViewModel(
                 .filter { it.isNotEmpty() }
                 .distinct()
                 .sorted()
-        }.catch { yichang ->
-            if (yichang is CancellationException) throw yichang
-            emit(emptyList())
-        }
+        }.flowOn(Dispatchers.Default)
+            .catch { yichang ->
+                if (yichang is CancellationException) throw yichang
+                emit(emptyList())
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Opens the single default vault, creating it on first run. Used as the app's home. */

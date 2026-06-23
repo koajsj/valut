@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.offlinevault.data.model.PasswordEntity
 import com.offlinevault.data.repository.PasswordRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -18,6 +20,7 @@ class TrashViewModel(
 
     val items: StateFlow<List<PasswordEntity>> =
         passwordRepository.trashed()
+            .flowOn(Dispatchers.Default)
             .catch { error ->
                 if (error is CancellationException) throw error
                 emit(emptyList())
