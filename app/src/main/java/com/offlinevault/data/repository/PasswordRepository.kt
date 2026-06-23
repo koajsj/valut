@@ -121,9 +121,14 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
             encryptedNote = if (note.isBlank()) "" else CryptoManager.encryptString(key, note),
             strengthScore = PasswordStrengthChecker.evaluate(password).score,
             createdAt = existing?.createdAt ?: now,
-            updatedAt = now
+            updatedAt = now,
+            // Preserve flags on edit — they must survive a save.
+            deletedAt = existing?.deletedAt ?: 0L,
+            favorite = existing?.favorite ?: false
         )
-        passwordDao.insert(entity)
+        // Edits MUST use UPDATE, not INSERT-OR-REPLACE: REPLACE deletes the old row first, which
+        // cascade-deletes its password_history. UPDATE changes the row in place and keeps history.
+        if (existing != null) passwordDao.update(entity) else passwordDao.insert(entity)
         return entity.id
     }
 
