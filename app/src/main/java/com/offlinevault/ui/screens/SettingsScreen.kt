@@ -571,7 +571,13 @@ fun SettingsScreen(
                     }
                     pendingJsonBackup = json
                     com.offlinevault.security.LockGuard.suppressNextBackground = true
-                    saveJsonLauncher.launch("offline-vault-backup-${Formatters.fileStamp()}.json")
+                    try {
+                        saveJsonLauncher.launch("offline-vault-backup-${Formatters.fileStamp()}.json")
+                    } catch (_: Exception) {
+                        com.offlinevault.security.LockGuard.suppressNextBackground = false
+                        pendingJsonBackup = null
+                        toast("未找到可用的文件管理器，无法保存备份")
+                    }
                 }
             }
         )
@@ -592,7 +598,13 @@ fun SettingsScreen(
                     } else if (vaults.size == 1) {
                         pendingCsvVaultId = vaults.first().id
                         com.offlinevault.security.LockGuard.suppressNextBackground = true
-                        saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
+                        try {
+                            saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
+                        } catch (_: Exception) {
+                            com.offlinevault.security.LockGuard.suppressNextBackground = false
+                            pendingCsvVaultId = null
+                            toast("未找到可用的文件管理器，无法导出")
+                        }
                     } else csvTargetPick = true
                 }) { Text("我已了解，继续导出", color = MaterialTheme.colorScheme.error) }
             },
@@ -615,7 +627,13 @@ fun SettingsScreen(
                 } else {
                     pendingCsvVaultId = id
                     com.offlinevault.security.LockGuard.suppressNextBackground = true
-                    saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
+                    try {
+                        saveCsvLauncher.launch("offline-vault-export-${Formatters.fileStamp()}.csv")
+                    } catch (_: Exception) {
+                        com.offlinevault.security.LockGuard.suppressNextBackground = false
+                        pendingCsvVaultId = null
+                        toast("未找到可用的文件管理器，无法导出")
+                    }
                 }
             },
             onDismiss = { csvTargetPick = false; pendingImportCsv = null }

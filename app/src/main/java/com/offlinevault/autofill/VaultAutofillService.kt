@@ -88,20 +88,28 @@ class VaultAutofillService : AutofillService() {
         }
 
         serviceScope.launch {
-            val matches = findMatches(parsed)
-            if (cancellationSignal.isCanceled) return@launch
+            try {
+                val matches = findMatches(parsed)
+                if (cancellationSignal.isCanceled) return@launch
 
-            val builder = FillResponse.Builder()
-            var hasContent = false
-            for (item in matches) {
-                builder.addDataset(buildDataset(item, parsed))
-                hasContent = true
+                val builder = FillResponse.Builder()
+                var hasContent = false
+                for (item in matches) {
+                    builder.addDataset(buildDataset(item, parsed))
+                    hasContent = true
+                }
+                if (saveInfo != null) {
+                    builder.setSaveInfo(saveInfo)
+                    hasContent = true
+                }
+                callback.onSuccess(if (hasContent) builder.build() else null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Never let an unexpected failure escape the launch — that would crash the autofill
+                // service process. Fail gracefully by offering nothing.
+                runCatching { callback.onSuccess(null) }
             }
-            if (saveInfo != null) {
-                builder.setSaveInfo(saveInfo)
-                hasContent = true
-            }
-            callback.onSuccess(if (hasContent) builder.build() else null)
         }
     }
 
