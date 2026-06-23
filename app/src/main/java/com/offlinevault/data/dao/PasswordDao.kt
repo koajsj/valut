@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.offlinevault.data.model.PasswordEntity
+import com.offlinevault.data.model.PasswordHistoryEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -57,5 +58,24 @@ interface PasswordDao {
 
     @Query("DELETE FROM passwords WHERE deletedAt > 0")
     suspend fun emptyTrash()
+
+    // ---- Password history ----
+
+    @Insert
+    suspend fun insertHistory(entry: PasswordHistoryEntity)
+
+    @Query("SELECT COUNT(*) FROM password_history WHERE passwordId = :passwordId")
+    fun historyCount(passwordId: String): Flow<Int>
+
+    @Query("SELECT * FROM password_history WHERE passwordId = :passwordId ORDER BY changedAt DESC")
+    suspend fun historyForOnce(passwordId: String): List<PasswordHistoryEntity>
+
+    /** Keeps only the [keep] most-recent history rows for a credential, deleting older ones. */
+    @Query(
+        "DELETE FROM password_history WHERE passwordId = :passwordId AND id NOT IN (" +
+            "SELECT id FROM password_history WHERE passwordId = :passwordId " +
+            "ORDER BY changedAt DESC LIMIT :keep)"
+    )
+    suspend fun pruneHistory(passwordId: String, keep: Int)
 
 }

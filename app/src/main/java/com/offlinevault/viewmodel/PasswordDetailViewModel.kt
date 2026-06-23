@@ -3,6 +3,7 @@ package com.offlinevault.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.offlinevault.data.repository.DecryptedPassword
+import com.offlinevault.data.repository.PasswordHistoryItem
 import com.offlinevault.data.repository.PasswordRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,9 +52,41 @@ class PasswordDetailViewModel(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /** Live count of previous passwords, for the "历史密码 (N)" entry. */
+    val historyCount: StateFlow<Int> =
+        id.flatMapLatest { pid ->
+            if (pid == null) flowOf(0) else passwordRepository.historyCount(pid)
+        }.catch { error ->
+            if (error is CancellationException) throw error
+            emit(0)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    // Decrypted history is loaded only on demand so old plaintext passwords aren't held in memory
+    // unless the user explicitly opens the history view.
+    private val _history = MutableStateFlow<List<PasswordHistoryItem>>(emptyList())
+    val history: StateFlow<List<PasswordHistoryItem>> = _history.asStateFlow()
+
     fun load(passwordId: String) {
         _error.value = null
         id.value = passwordId
+    }
+
+    fun loadHistory() {
+        val pid = id.value ?: return
+        viewModelScope.launch {
+            _history.value = try {
+                passwordRepository.history(pid)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    /** Drops decrypted history from memory when the history view closes. */
+    fun clearHistory() {
+        _history.value = emptyList()
     }
 
     fun delete(onResult: (Boolean, String?) -> Unit) {

@@ -1,6 +1,7 @@
 package com.offlinevault.ui.screens
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,11 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -65,12 +68,15 @@ fun PasswordDetailScreen(
     LaunchedEffect(passwordId) { viewModel.load(passwordId) }
     val item by viewModel.item.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val historyCount by viewModel.historyCount.collectAsStateWithLifecycle()
+    val history by viewModel.history.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var reveal by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
 
     fun toast(message: String) = scope.launch { snackbar.showSnackbar(message) }
 
@@ -220,6 +226,33 @@ fun PasswordDetailScreen(
                 }
             }
 
+            if (historyCount > 0) {
+                Spacer(Modifier.height(12.dp))
+                SectionCard {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.loadHistory(); showHistory = true }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("历史密码", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "保留最近 $historyCount 条曾用密码",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
             Text(
                 "更新于 ${Formatters.fullDate(current.updatedAt)}",
@@ -228,6 +261,67 @@ fun PasswordDetailScreen(
             )
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (showHistory) {
+        AlertDialog(
+            onDismissRequest = { showHistory = false; viewModel.clearHistory() },
+            title = { Text("历史密码") },
+            text = {
+                if (history.isEmpty()) {
+                    Text("没有可显示的历史密码。", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Column(
+                        Modifier
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            "曾经使用过的密码，最新在前。点击复制。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        history.forEach { entry ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        ClipboardHelper.copySensitive(context, "历史密码", entry.password, clipboardSeconds)
+                                        toast(
+                                            if (clipboardSeconds > 0) "已复制，将在 ${clipboardSeconds} 秒后清除"
+                                            else "已复制"
+                                        )
+                                    }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        entry.password,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        "更换于 ${Formatters.relativeTime(entry.changedAt)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    Icons.Filled.ContentCopy,
+                                    contentDescription = "复制",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHistory = false; viewModel.clearHistory() }) { Text("关闭") }
+            }
+        )
     }
 
     if (confirmDelete) {

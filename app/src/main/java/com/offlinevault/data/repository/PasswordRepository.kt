@@ -29,11 +29,21 @@ data class DecryptedPassword(
     val updatedAt: Long
 )
 
+/** A decrypted previous password, shown in the credential's history view. */
+data class PasswordHistoryItem(
+    val id: String,
+    val password: String,
+    val changedAt: Long
+)
+
 class PasswordRepository(private val passwordDao: PasswordDao) {
 
     companion object {
         /** Trashed credentials are kept this many days before automatic permanent deletion. */
         const val TRASH_RETENTION_DAYS = 30
+
+        /** How many previous passwords are retained per credential. */
+        const val HISTORY_KEEP = 10
     }
 
     fun passwordsByVault(vaultId: String): Flow<List<PasswordEntity>> =
@@ -98,6 +108,7 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         val key = SessionManager.requireKey()
         val now = System.currentTimeMillis()
         val existing = id?.let { passwordDao.getById(it) }
+        if (existing != null) recordHistoryIfChanged(existing, password, key)
 
         val entity = PasswordEntity(
             id = existing?.id ?: UUID.randomUUID().toString(),
@@ -146,6 +157,37 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         passwordDao.purgeTrashedOlderThan(cutoff)
     }
 
+    // ---- Password history --------------------------------------------------
+
+    /** Live count of stored previous passwords for a credential (for the detail-screen badge). */
+    fun historyCount(passwordId: String): Flow<Int> = passwordDao.historyCount(passwordId)
+
+    /** Decrypts the stored previous passwords for a credential, newest first. Corrupted rows skipped. */
+    suspend fun history(passwordId: String): List<PasswordHistoryItem> {
+        val key = SessionManager.requireKey()
+        return passwordDao.historyForOnce(passwordId).mapNotNull { row ->
+            val pw = runCatching { CryptoManager.decryptString(key, row.encryptedPassword) }.getOrNull()
+                ?: return@mapNotNull null
+            PasswordHistoryItem(row.id, pw, row.changedAt)
+        }
+    }
+
+    /**
+     * Records the soon-to-be-overwritten password into history, but only when it actually changed.
+     * Reuses the existing ciphertext (same session key) so no re-encryption is needed.
+     */
+    private suspend fun recordHistoryIfChanged(existing: PasswordEntity, newPassword: String, key: javax.crypto.SecretKey) {
+        val old = runCatching { CryptoManager.decryptString(key, existing.encryptedPassword) }.getOrNull()
+        if (old.isNullOrEmpty() || old == newPassword) return
+        passwordDao.insertHistory(
+            com.offlinevault.data.model.PasswordHistoryEntity(
+                passwordId = existing.id,
+                encryptedPassword = existing.encryptedPassword
+            )
+        )
+        passwordDao.pruneHistory(existing.id, HISTORY_KEEP)
+    }
+
     /**
      * Inserts (or updates) a credential captured by the autofill Save flow. If an entry for the
      * same target (web origin / native app) and username already exists, its password is refreshed
@@ -162,6 +204,7 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
             }.getOrDefault(false)
         }
         if (existing != null) {
+            recordHistoryIfChanged(existing, password, key)
             passwordDao.update(
                 existing.copy(
                     encryptedPassword = CryptoManager.encryptString(key, password),

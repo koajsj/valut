@@ -25,6 +25,8 @@ android {
         versionCode = 2
         versionName = "1.1.0"
 
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -87,6 +89,19 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    // Make the exported Room schemas available to instrumented migration tests.
+    sourceSets {
+        getByName("androidTest").assets.srcDir(files("$projectDir/schemas"))
+    }
+}
+
+// Export the Room schema to /schemas on every build so schema changes are reviewable in diffs and
+// migrations can be validated with MigrationTestHelper. A missing migration now fails loudly.
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
 }
 
 dependencies {
@@ -124,4 +139,9 @@ dependencies {
 
     // Unit tests (local JVM)
     testImplementation("junit:junit:4.13.2")
+
+    // Instrumented tests (Room migration validation)
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
 }
