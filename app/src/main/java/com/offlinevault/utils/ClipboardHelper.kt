@@ -43,15 +43,22 @@ object ClipboardHelper {
         clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
     }
 
-    /** Only clears if the clipboard still holds the value we put there. */
+    /**
+     * Clears the copied secret when the timer fires. Reading the clipboard to confirm it still holds
+     * our value is blocked in the background on Android 10+, returning null — so we clear on a null
+     * read too (fail safe: wipe the secret). We only skip clearing when we can positively see that
+     * the user has since copied something different, so we don't stomp their newer clipboard content.
+     */
     private fun clear(context: Context, expected: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val current = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-        if (current == expected) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                clipboard.clearPrimaryClip()
-            } else {
-                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+        val current = runCatching { clipboard.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull()
+        if (current == null || current == expected) {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    clipboard.clearPrimaryClip()
+                } else {
+                    clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+                }
             }
         }
         pendingClear = null

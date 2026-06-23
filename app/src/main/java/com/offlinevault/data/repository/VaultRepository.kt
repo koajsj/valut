@@ -5,8 +5,14 @@ import com.offlinevault.data.model.VaultEntity
 import com.offlinevault.security.EncryptedField
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class VaultRepository(private val vaultDao: VaultDao) {
+
+    // Serialises ensureDefault() so two concurrent callers (e.g. the password list loading while an
+    // autofill save unlocks) can't both pass the "no vault yet" check and create duplicate defaults.
+    private val ensureDefaultMutex = Mutex()
 
     fun allVaults(): Flow<List<VaultEntity>> = vaultDao.getAllVaults().map { rows -> rows.map(::decrypt) }
 
@@ -27,11 +33,11 @@ class VaultRepository(private val vaultDao: VaultDao) {
     }
 
     /** Ensures there is always at least one vault to put credentials into. */
-    suspend fun ensureDefault(): VaultEntity {
-        vaultDao.firstVault()?.let { return decrypt(it) }
+    suspend fun ensureDefault(): VaultEntity = ensureDefaultMutex.withLock {
+        vaultDao.firstVault()?.let { return@withLock decrypt(it) }
         val vault = VaultEntity(name = EncryptedField.encrypt("个人"), icon = "person")
         vaultDao.insert(vault)
-        return decrypt(vault)
+        decrypt(vault)
     }
 
     suspend fun insertImported(vault: VaultEntity) {
