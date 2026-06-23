@@ -1,4 +1,3 @@
-import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
@@ -10,7 +9,7 @@ plugins {
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.isFile) {
-        FileInputStream(keystorePropertiesFile).use(::load)
+        keystorePropertiesFile.reader(Charsets.UTF_8).use(::load)
     }
 }
 

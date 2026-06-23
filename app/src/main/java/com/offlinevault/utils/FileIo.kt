@@ -7,6 +7,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 
 object FileIo {
     const val MAX_IMPORT_BYTES = 10 * 1024 * 1024
@@ -59,7 +61,17 @@ object FileIo {
                 require(total <= maxBytes) { "导入文件超过 ${maxBytes} 字节限制" }
                 output.write(buffer, 0, count)
             }
-            return output.toString(Charsets.UTF_8.name())
+            val bytes = output.toByteArray()
+            return try {
+                Charsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString()
+            } finally {
+                bytes.fill(0)
+            }
         } finally {
             buffer.fill(0)
         }
