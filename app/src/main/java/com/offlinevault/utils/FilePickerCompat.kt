@@ -25,6 +25,12 @@ object FilePickerCompat {
     fun createFallbackImportChooser(): Intent =
         Intent.createChooser(buildGetContentIntent(), "选择导入文件")
 
+    /**
+     * Bare ACTION_GET_CONTENT without the chooser wrapper. Last resort for ROMs where even the
+     * system chooser refuses to launch.
+     */
+    fun createDirectGetContentIntent(): Intent = buildGetContentIntent()
+
     fun extractUri(resultData: Intent?): Uri? = resultData?.data
 
     fun persistReadPermission(context: Context, uri: Uri) {

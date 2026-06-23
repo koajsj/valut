@@ -1,6 +1,5 @@
 package com.offlinevault.ui.screens
 
-import android.content.ActivityNotFoundException
 import android.view.autofill.AutofillManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -168,22 +167,29 @@ fun PasswordListScreen(
 
     fun launchImport() {
         LockGuard.suppressNextBackground = true
+        // Try three pickers in order, catching ALL exceptions each time (some ROMs throw
+        // SecurityException/RuntimeException rather than ActivityNotFoundException):
+        //   1. SAF OpenDocument (system DocumentsUI) — present on every stock Android 8.0+.
+        //   2. ACTION_GET_CONTENT via system chooser.
+        //   3. ACTION_GET_CONTENT directly (no chooser) — for ROMs whose chooser itself refuses.
         try {
             openDocumentLauncher.launch(FilePickerCompat.importMimeTypes)
             return
-        } catch (_: ActivityNotFoundException) {
-            // DocumentsUI unavailable — fall through to ACTION_GET_CONTENT.
-        } catch (_: RuntimeException) {
+        } catch (_: Exception) {
+            // DocumentsUI unavailable/blocked — fall through to ACTION_GET_CONTENT.
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createFallbackImportChooser())
-        } catch (_: ActivityNotFoundException) {
-            LockGuard.suppressNextBackground = false
-            toast("未找到可用的文件管理器，无法选择文件")
-        } catch (_: RuntimeException) {
-            LockGuard.suppressNextBackground = false
-            toast("未找到可用的文件管理器，无法选择文件")
+            return
+        } catch (_: Exception) {
         }
+        try {
+            getContentLauncher.launch(FilePickerCompat.createDirectGetContentIntent())
+            return
+        } catch (_: Exception) {
+        }
+        LockGuard.suppressNextBackground = false
+        toast("未找到可用的文件管理器，无法选择文件")
     }
 
     Scaffold(

@@ -187,22 +187,29 @@ fun SettingsScreen(
 
     fun launchImport() {
         com.offlinevault.security.LockGuard.suppressNextBackground = true
+        // Try three pickers in order, catching ALL exceptions each time (some ROMs throw
+        // SecurityException/RuntimeException rather than ActivityNotFoundException):
+        //   1. SAF OpenDocument (system DocumentsUI) — present on every stock Android 8.0+.
+        //   2. ACTION_GET_CONTENT via system chooser.
+        //   3. ACTION_GET_CONTENT directly (no chooser) — for ROMs whose chooser itself refuses.
         try {
             openDocumentLauncher.launch(FilePickerCompat.importMimeTypes)
             return
-        } catch (_: ActivityNotFoundException) {
-            // DocumentsUI unavailable — fall through to ACTION_GET_CONTENT.
-        } catch (_: RuntimeException) {
+        } catch (_: Exception) {
+            // DocumentsUI unavailable/blocked — fall through to ACTION_GET_CONTENT.
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createFallbackImportChooser())
-        } catch (_: ActivityNotFoundException) {
-            com.offlinevault.security.LockGuard.suppressNextBackground = false
-            toast("未找到可用的文件管理器，无法选择文件")
-        } catch (_: RuntimeException) {
-            com.offlinevault.security.LockGuard.suppressNextBackground = false
-            toast("未找到可用的文件管理器，无法选择文件")
+            return
+        } catch (_: Exception) {
         }
+        try {
+            getContentLauncher.launch(FilePickerCompat.createDirectGetContentIntent())
+            return
+        } catch (_: Exception) {
+        }
+        com.offlinevault.security.LockGuard.suppressNextBackground = false
+        toast("未找到可用的文件管理器，无法选择文件")
     }
 
     // ---- Autofill enablement ----
@@ -222,19 +229,27 @@ fun SettingsScreen(
     }
     fun openAutofillSettings() {
         com.offlinevault.security.LockGuard.suppressNextBackground = true
-        try {
-            autofillSettingsLauncher.launch(
-                Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE)
-                    .setData(Uri.parse("package:${context.packageName}"))
-            )
-        } catch (_: ActivityNotFoundException) {
+        // Try, in order: the autofill-service picker scoped to us, the generic autofill picker,
+        // then this app's details page. Some ROMs throw SecurityException/RuntimeException (not
+        // ActivityNotFoundException) for the autofill intents, so every attempt must catch broadly
+        // or the app crashes when the system refuses the intent.
+        val candidates = listOf(
+            Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE)
+                .setData(Uri.parse("package:${context.packageName}")),
+            Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}"))
+        )
+        for (intent in candidates) {
             try {
-                autofillSettingsLauncher.launch(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE))
+                autofillSettingsLauncher.launch(intent)
+                return
             } catch (_: Exception) {
-                com.offlinevault.security.LockGuard.suppressNextBackground = false
-                toast("无法打开自动填充设置，请在系统设置中手动开启")
+                // Intent unsupported or blocked on this ROM — try the next one.
             }
         }
+        com.offlinevault.security.LockGuard.suppressNextBackground = false
+        toast("无法打开自动填充设置，请在系统设置中手动开启")
     }
 
     Scaffold(
