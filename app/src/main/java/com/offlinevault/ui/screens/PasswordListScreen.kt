@@ -1,10 +1,13 @@
 package com.offlinevault.ui.screens
 
 import android.view.autofill.AutofillManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -26,12 +29,19 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -77,6 +87,7 @@ import com.offlinevault.ui.components.RiskChip
 import com.offlinevault.utils.FileIo
 import com.offlinevault.utils.FilePickerCompat
 import com.offlinevault.viewmodel.PasswordListViewModel
+import com.offlinevault.viewmodel.SortOrder
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,6 +104,9 @@ fun PasswordListScreen(
     val activeTag by viewModel.dangqianBiaoqian.collectAsStateWithLifecycle()
     val vaultName by viewModel.mimakuMingcheng.collectAsStateWithLifecycle()
     val errorMessage by viewModel.cuowuXinxi.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val sortOrder by viewModel.sortOrder.collectAsStateWithLifecycle()
+    val selectionMode = selectedIds.isNotEmpty()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -100,6 +114,11 @@ fun PasswordListScreen(
 
     var importJsonPasswordPrompt by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
+    var showSort by remember { mutableStateOf(false) }
+    var confirmBatchDelete by remember { mutableStateOf(false) }
+
+    // While selecting, the system back button exits selection instead of leaving the screen.
+    BackHandler(enabled = selectionMode) { viewModel.clearSelection() }
 
     // Autofill enablement nudge: shown until the user enables Offline Vault as the system service.
     val autofillManager = remember { context.getSystemService(AutofillManager::class.java) }
@@ -199,29 +218,65 @@ fun PasswordListScreen(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text(vaultName.ifEmpty { "我的密码" }, fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { launchImport() }) {
-                        Icon(Icons.Filled.Download, contentDescription = "导入密码")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground
-                )
+            val barColors = TopAppBarDefaults.topAppBarColors(
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                titleContentColor = MaterialTheme.colorScheme.onBackground
             )
+            if (selectionMode) {
+                TopAppBar(
+                    title = { Text("已选 ${selectedIds.size} 项", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(Icons.Filled.Close, contentDescription = "退出多选")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { confirmBatchDelete = true }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "删除所选", tint = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    colors = barColors
+                )
+            } else {
+                TopAppBar(
+                    title = { Text(vaultName.ifEmpty { "我的密码" }, fontWeight = FontWeight.Bold) },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { showSort = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                            }
+                            DropdownMenu(expanded = showSort, onDismissRequest = { showSort = false }) {
+                                SortMenuItem("最近更新", SortOrder.UPDATED, sortOrder) {
+                                    viewModel.setSortOrder(it); showSort = false
+                                }
+                                SortMenuItem("标题", SortOrder.TITLE, sortOrder) {
+                                    viewModel.setSortOrder(it); showSort = false
+                                }
+                                SortMenuItem("密码强度（弱在前）", SortOrder.STRENGTH, sortOrder) {
+                                    viewModel.setSortOrder(it); showSort = false
+                                }
+                            }
+                        }
+                        IconButton(onClick = { launchImport() }) {
+                            Icon(Icons.Filled.Download, contentDescription = "导入密码")
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Filled.Settings, contentDescription = "设置")
+                        }
+                    },
+                    colors = barColors
+                )
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddItem,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加密码")
+            if (!selectionMode) {
+                FloatingActionButton(
+                    onClick = onAddItem,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "添加密码")
+                }
             }
         }
     ) { padding ->
@@ -309,7 +364,16 @@ fun PasswordListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(items, key = { it.id }) { item ->
-                        PasswordCard(item = item, onClick = { onOpenItem(item.id) })
+                        PasswordCard(
+                            item = item,
+                            selected = item.id in selectedIds,
+                            selectionMode = selectionMode,
+                            onClick = {
+                                if (selectionMode) viewModel.toggleSelected(item.id) else onOpenItem(item.id)
+                            },
+                            onLongClick = { viewModel.toggleSelected(item.id) },
+                            onToggleFavorite = { viewModel.toggleFavorite(item.id, !item.favorite) }
+                        )
                     }
                 }
             }
@@ -348,10 +412,53 @@ fun PasswordListScreen(
             }
         )
     }
+
+    if (confirmBatchDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmBatchDelete = false },
+            title = { Text("删除所选密码？") },
+            text = { Text("选中的 ${selectedIds.size} 项将被移到回收站，30 天后自动永久删除。期间可在「设置 → 回收站」中恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmBatchDelete = false
+                    viewModel.deleteSelected { ok, count ->
+                        toast(if (ok) "已移到回收站 $count 项" else "删除失败")
+                    }
+                }) { Text("移到回收站", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmBatchDelete = false }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
-private fun PasswordCard(item: PasswordEntity, onClick: () -> Unit) {
+private fun SortMenuItem(
+    label: String,
+    order: SortOrder,
+    current: SortOrder,
+    onPick: (SortOrder) -> Unit
+) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        onClick = { onPick(order) },
+        leadingIcon = {
+            if (order == current) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PasswordCard(
+    item: PasswordEntity,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleFavorite: () -> Unit
+) {
     val level = PasswordStrengthChecker.levelFor(item.strengthScore)
     val tagList = item.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
@@ -359,15 +466,25 @@ private fun PasswordCard(item: PasswordEntity, onClick: () -> Unit) {
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.98f else 1f, label = "cardPress")
 
+    val borderColor = if (selected) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+    val containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+    else MaterialTheme.colorScheme.surface
+
     Row(
         Modifier
             .fillMaxWidth()
             .scale(scale)
             .shadow(10.dp, CardShape, clip = false, spotColor = Color.Black, ambientColor = Color.Black)
             .clip(CardShape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CardShape)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .background(containerColor)
+            .border(1.dp, borderColor, CardShape)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -375,15 +492,19 @@ private fun PasswordCard(item: PasswordEntity, onClick: () -> Unit) {
             Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.16f)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                item.title.take(1).uppercase().ifEmpty { "?" },
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium
-            )
+            if (selected) {
+                Icon(Icons.Filled.Check, contentDescription = "已选中", tint = Color.White)
+            } else {
+                Text(
+                    item.title.take(1).uppercase().ifEmpty { "?" },
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
         }
         Spacer(Modifier.size(14.dp))
         Column(Modifier.weight(1f)) {
@@ -414,6 +535,16 @@ private fun PasswordCard(item: PasswordEntity, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.size(8.dp))
+        if (!selectionMode) {
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    if (item.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = if (item.favorite) "取消收藏" else "收藏",
+                    tint = if (item.favorite) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         RiskChip(level = level)
     }
 }

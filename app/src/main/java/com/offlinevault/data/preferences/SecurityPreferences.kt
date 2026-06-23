@@ -44,6 +44,7 @@ class SecurityPreferences(private val context: Context) {
         val BIOMETRIC_WRAPPED_DEK = stringPreferencesKey("biometric_wrapped_dek")
 
         val AUTO_LOCK_MINUTES = intPreferencesKey("auto_lock_minutes")
+        val AUTO_LOCK_SECONDS = intPreferencesKey("auto_lock_seconds")
         val LOCK_ON_SCREEN_OFF = booleanPreferencesKey("lock_on_screen_off")
         val SCREENSHOT_BLOCKED = booleanPreferencesKey("screenshot_blocked")
         val CLIPBOARD_CLEAR_SECONDS = intPreferencesKey("clipboard_clear_seconds")
@@ -189,15 +190,20 @@ class SecurityPreferences(private val context: Context) {
 
     // ---- User settings -----------------------------------------------------
 
-    val autoLockMinutesFlow: Flow<Int> =
-        context.dataStore.data.map { it[Keys.AUTO_LOCK_MINUTES] ?: 1 }.catch { emit(1) }
+    // Auto-lock delay in SECONDS. Older installs stored whole minutes under AUTO_LOCK_MINUTES; when the
+    // new key is absent we fall back to that value (× 60) so existing users keep their setting.
+    private fun Preferences.autoLockSeconds(): Int =
+        this[Keys.AUTO_LOCK_SECONDS] ?: ((this[Keys.AUTO_LOCK_MINUTES] ?: 1) * 60)
 
-    suspend fun setAutoLockMinutes(value: Int) {
-        context.dataStore.edit { it[Keys.AUTO_LOCK_MINUTES] = value }
+    val autoLockSecondsFlow: Flow<Int> =
+        context.dataStore.data.map { it.autoLockSeconds() }.catch { emit(60) }
+
+    suspend fun setAutoLockSeconds(value: Int) {
+        context.dataStore.edit { it[Keys.AUTO_LOCK_SECONDS] = value }
     }
 
-    suspend fun autoLockMinutesValue(): Int =
-        context.dataStore.data.first()[Keys.AUTO_LOCK_MINUTES] ?: 1
+    suspend fun autoLockSecondsValue(): Int =
+        context.dataStore.data.first().autoLockSeconds()
 
     val lockOnScreenOffFlow: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.LOCK_ON_SCREEN_OFF] ?: false }.catch { emit(false) }

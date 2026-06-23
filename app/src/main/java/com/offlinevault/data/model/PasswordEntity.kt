@@ -36,5 +36,7 @@ data class PasswordEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     // Soft-delete marker for the recycle bin. 0 = active; otherwise the epoch-millis deletion time.
     // Trashed rows are hidden from every normal query and auto-purged after the retention window.
-    val deletedAt: Long = 0L
+    val deletedAt: Long = 0L,
+    // Pinned/favorite flag. Favorites sort to the top of the list regardless of the chosen order.
+    val favorite: Boolean = false
 )

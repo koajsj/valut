@@ -75,7 +75,7 @@ fun SettingsScreen(
     val snackbar = remember { SnackbarHostState() }
 
     val biometricEnabled by viewModel.biometricEnabled.collectAsStateWithLifecycle()
-    val autoLock by viewModel.autoLockMinutes.collectAsStateWithLifecycle()
+    val autoLock by viewModel.autoLockSeconds.collectAsStateWithLifecycle()
     val screenshotBlocked by viewModel.screenshotBlocked.collectAsStateWithLifecycle()
     val lockOnScreenOff by viewModel.lockOnScreenOff.collectAsStateWithLifecycle()
     val healthCheckEnabled by viewModel.healthCheckEnabled.collectAsStateWithLifecycle()
@@ -477,10 +477,17 @@ fun SettingsScreen(
     if (showAutoLock) {
         ChoiceDialog(
             title = "自动锁定",
-            options = listOf(0 to "立即锁定", 1 to "1 分钟后", 5 to "5 分钟后"),
+            options = listOf(
+                0 to "立即锁定",
+                30 to "30 秒后",
+                60 to "1 分钟后",
+                300 to "5 分钟后",
+                600 to "10 分钟后",
+                1800 to "30 分钟后"
+            ),
             selected = autoLock,
             onSelect = {
-                viewModel.setAutoLockMinutes(it) { ok -> if (!ok) toast("设置失败") }
+                viewModel.setAutoLockSeconds(it) { ok -> if (!ok) toast("设置失败") }
                 showAutoLock = false
             },
             onDismiss = { showAutoLock = false }
@@ -744,10 +751,11 @@ fun SettingsScreen(
     }
 }
 
-private fun autoLockLabel(minutes: Int): String = when (minutes) {
-    0 -> "立即锁定"
-    1 -> "1 分钟后"
-    else -> "$minutes 分钟后"
+private fun autoLockLabel(seconds: Int): String = when {
+    seconds == 0 -> "立即锁定"
+    seconds < 60 -> "$seconds 秒后"
+    seconds % 60 == 0 -> "${seconds / 60} 分钟后"
+    else -> "$seconds 秒后"
 }
 
 @Composable

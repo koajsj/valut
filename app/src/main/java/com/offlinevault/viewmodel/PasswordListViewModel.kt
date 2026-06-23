@@ -25,6 +25,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** List ordering options. Favorites always pin above these. */
+enum class SortOrder { UPDATED, TITLE, STRENGTH }
+
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class PasswordListViewModel(
     private val mimaCangku: PasswordRepository,
@@ -66,15 +69,24 @@ class PasswordListViewModel(
     // Debounce only the typed query (blank emits immediately so the initial load isn't delayed).
     private val chaxunFangdou = chaxun.debounce { if (it.isBlank()) 0L else 200L }
 
+    private val paixu = MutableStateFlow(SortOrder.UPDATED)
+    val sortOrder: StateFlow<SortOrder> = paixu.asStateFlow()
+    fun setSortOrder(order: SortOrder) { paixu.value = order }
+
+    private data class ListQuery(val kuId: String, val query: String, val tag: String?, val sort: SortOrder)
+
     val tiaomu: StateFlow<List<PasswordEntity>> =
-        combine(mimakuId, chaxunFangdou, biaoqianGuolv) { kuId, cxWen, biaoqian -> Triple(kuId, cxWen, biaoqian) }
-            .flatMapLatest { (kuId, cxWen, biaoqian) ->
-                when {
-                    kuId.isEmpty() -> kotlinx.coroutines.flow.flowOf(emptyList())
-                    biaoqian != null -> mimaCangku.byTag(kuId, biaoqian)
-                    cxWen.isNotBlank() -> mimaCangku.search(kuId, cxWen.trim())
-                    else -> mimaCangku.passwordsByVault(kuId)
+        combine(mimakuId, chaxunFangdou, biaoqianGuolv, paixu) { kuId, cxWen, biaoqian, sort ->
+            ListQuery(kuId, cxWen, biaoqian, sort)
+        }
+            .flatMapLatest { q ->
+                val source = when {
+                    q.kuId.isEmpty() -> kotlinx.coroutines.flow.flowOf(emptyList())
+                    q.tag != null -> mimaCangku.byTag(q.kuId, q.tag)
+                    q.query.isNotBlank() -> mimaCangku.search(q.kuId, q.query.trim())
+                    else -> mimaCangku.passwordsByVault(q.kuId)
                 }
+                source.map { sortItems(it, q.sort) }
             }
             .catch { yichang ->
                 if (yichang is CancellationException) throw yichang
@@ -82,6 +94,55 @@ class PasswordListViewModel(
                 emit(emptyList())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Favorites always float to the top, then the chosen order applies.
+    private fun sortItems(list: List<PasswordEntity>, order: SortOrder): List<PasswordEntity> {
+        val base = when (order) {
+            SortOrder.UPDATED -> compareByDescending<PasswordEntity> { it.updatedAt }
+            SortOrder.TITLE -> compareBy<PasswordEntity> { it.title.lowercase() }
+            SortOrder.STRENGTH -> compareBy<PasswordEntity> { it.strengthScore }
+        }
+        return list.sortedWith(compareByDescending<PasswordEntity> { it.favorite }.then(base))
+    }
+
+    // ---- Selection (batch operations) ----
+    private val xuanzhong = MutableStateFlow<Set<String>>(emptySet())
+    val selectedIds: StateFlow<Set<String>> = xuanzhong.asStateFlow()
+
+    fun toggleSelected(id: String) {
+        val cur = xuanzhong.value
+        xuanzhong.value = if (id in cur) cur - id else cur + id
+    }
+
+    fun clearSelection() { xuanzhong.value = emptySet() }
+
+    fun deleteSelected(onResult: (Boolean, Int) -> Unit) {
+        val ids = xuanzhong.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                mimaCangku.deleteMany(ids)
+                xuanzhong.value = emptySet()
+                onResult(true, ids.size)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, 0)
+            }
+        }
+    }
+
+    fun toggleFavorite(id: String, favorite: Boolean) {
+        viewModelScope.launch {
+            try {
+                mimaCangku.setFavorite(id, favorite)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Non-critical; ignore.
+            }
+        }
+    }
 
     /** All distinct tags present in the current vault, for the filter row. */
     val biaoqianLiebiao: StateFlow<List<String>> =

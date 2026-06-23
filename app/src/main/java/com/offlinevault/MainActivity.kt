@@ -150,7 +150,7 @@ class MainActivity : FragmentActivity() {
         backgroundedAt = System.currentTimeMillis()
         lifecycleScope.launch {
             try {
-                if (prefs.autoLockMinutesValue() == 0) SessionManager.lock()
+                if (prefs.autoLockSecondsValue() == 0) SessionManager.lock()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -168,10 +168,10 @@ class MainActivity : FragmentActivity() {
         if (!SessionManager.isUnlocked || backgroundedAt == 0L) return
         lifecycleScope.launch {
             try {
-                val minutes = prefs.autoLockMinutesValue()
-                if (minutes > 0) {
+                val seconds = prefs.autoLockSecondsValue()
+                if (seconds > 0) {
                     val elapsed = System.currentTimeMillis() - backgroundedAt
-                    if (elapsed >= minutes * 60_000L) SessionManager.lock()
+                    if (elapsed >= seconds * 1000L) SessionManager.lock()
                 }
             } catch (e: CancellationException) {
                 throw e

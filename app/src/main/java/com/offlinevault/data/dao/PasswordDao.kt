@@ -49,6 +49,12 @@ interface PasswordDao {
     @Query("UPDATE passwords SET deletedAt = :deletedAt WHERE id = :id")
     suspend fun softDelete(id: String, deletedAt: Long)
 
+    @Query("UPDATE passwords SET deletedAt = :deletedAt WHERE id IN (:ids)")
+    suspend fun softDeleteMany(ids: List<String>, deletedAt: Long)
+
+    @Query("UPDATE passwords SET favorite = :favorite WHERE id = :id")
+    suspend fun setFavorite(id: String, favorite: Boolean)
+
     @Query("UPDATE passwords SET deletedAt = 0 WHERE id = :id")
     suspend fun restore(id: String)
 

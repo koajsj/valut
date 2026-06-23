@@ -132,6 +132,16 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         passwordDao.softDelete(id, System.currentTimeMillis())
     }
 
+    /** Moves several credentials to the recycle bin at once (batch delete). */
+    suspend fun deleteMany(ids: List<String>) {
+        if (ids.isNotEmpty()) passwordDao.softDeleteMany(ids, System.currentTimeMillis())
+    }
+
+    /** Pins/unpins a credential. Favorites sort to the top of the list. */
+    suspend fun setFavorite(id: String, favorite: Boolean) {
+        passwordDao.setFavorite(id, favorite)
+    }
+
     // ---- Recycle bin -------------------------------------------------------
 
     /** Trashed credentials, newest deletion first. Corrupted rows are skipped, never crash the list. */

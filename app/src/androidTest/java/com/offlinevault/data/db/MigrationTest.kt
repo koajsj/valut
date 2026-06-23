@@ -33,6 +33,6 @@ class MigrationTest {
     @Test
     fun latestSchemaMatchesEntities() {
         // Fails if any @Entity drifted from the exported schema (i.e. a missing migration).
-        helper.createDatabase(testDb, 4).close()
+        helper.createDatabase(testDb, 5).close()
     }
 }

@@ -14,7 +14,7 @@ import com.offlinevault.data.model.VaultEntity
 
 @Database(
     entities = [VaultEntity::class, PasswordEntity::class, PasswordHistoryEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +55,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 adds the favorite/pin flag (additive). Existing rows default to not-favorited. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE passwords ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -69,7 +76,7 @@ abstract class AppDatabase : RoomDatabase() {
                     // Data-safety policy: every schema bump MUST ship a Migration here. Do NOT add
                     // fallbackToDestructiveMigration() — a missing migration should fail loudly,
                     // never silently wipe the encrypted vault.
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }

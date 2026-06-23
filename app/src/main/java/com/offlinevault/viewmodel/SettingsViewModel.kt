@@ -42,8 +42,8 @@ class SettingsViewModel(
     val biometricEnabled: StateFlow<Boolean> =
         prefs.biometricEnabledFlow.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    val autoLockMinutes: StateFlow<Int> =
-        prefs.autoLockMinutesFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+    val autoLockSeconds: StateFlow<Int> =
+        prefs.autoLockSecondsFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 60)
 
     val screenshotBlocked: StateFlow<Boolean> =
         prefs.screenshotBlockedFlow.stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -78,8 +78,8 @@ class SettingsViewModel(
 
     // ---- Settings toggles --------------------------------------------------
 
-    fun setAutoLockMinutes(value: Int, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
-        onResult(runAction { prefs.setAutoLockMinutes(value) })
+    fun setAutoLockSeconds(value: Int, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(runAction { prefs.setAutoLockSeconds(value) })
     }
 
     fun setScreenshotBlocked(value: Boolean, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
