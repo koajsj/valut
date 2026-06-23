@@ -192,24 +192,27 @@ fun SettingsScreen(
         //   1. SAF OpenDocument (system DocumentsUI) — present on every stock Android 8.0+.
         //   2. ACTION_GET_CONTENT via system chooser.
         //   3. ACTION_GET_CONTENT directly (no chooser) — for ROMs whose chooser itself refuses.
+        var lastError: Throwable? = null
         try {
             openDocumentLauncher.launch(FilePickerCompat.importMimeTypes)
             return
-        } catch (_: Exception) {
-            // DocumentsUI unavailable/blocked — fall through to ACTION_GET_CONTENT.
+        } catch (e: Exception) {
+            lastError = e // DocumentsUI unavailable/blocked — fall through to ACTION_GET_CONTENT.
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createFallbackImportChooser())
             return
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastError = e
         }
         try {
             getContentLauncher.launch(FilePickerCompat.createDirectGetContentIntent())
             return
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastError = e
         }
         com.offlinevault.security.LockGuard.suppressNextBackground = false
-        toast("未找到可用的文件管理器，无法选择文件")
+        toast("未找到可用的文件管理器（${lastError?.javaClass?.simpleName ?: "未知"}）")
     }
 
     // ---- Autofill enablement ----
