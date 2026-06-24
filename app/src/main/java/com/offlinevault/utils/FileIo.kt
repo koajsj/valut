@@ -27,7 +27,12 @@ object FileIo {
     suspend fun writeText(context: Context, uri: Uri, content: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                val stream = context.contentResolver.openOutputStream(uri, "wt")
+                val stream = runCatching {
+                    context.contentResolver.openOutputStream(uri, "wt")
+                }.getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    null
+                } ?: context.contentResolver.openOutputStream(uri)
                 if (stream == null) {
                     false
                 } else {

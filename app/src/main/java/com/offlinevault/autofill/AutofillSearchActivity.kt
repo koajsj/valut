@@ -102,7 +102,7 @@ class AutofillSearchActivity : FragmentActivity() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
-                    val all = app.container.passwordRepository.allDecrypted()
+                    val all = app.container.passwordRepository.allDecryptedSkippingCorrupt()
                     val ranked = all.sortedByDescending { candidate ->
                         when {
                             !webDomain.isNullOrBlank() && OriginMatcher.matches(candidate.url, webDomain) -> 2
@@ -139,7 +139,13 @@ class AutofillSearchActivity : FragmentActivity() {
                             finish()
                             return@AutofillSearchScreen
                         }
-                        val dataset = buildResultDataset(item, usernameId, passwordId, targetLabel)
+                        val dataset = try {
+                            buildResultDataset(item, usernameId, passwordId, targetLabel)
+                        } catch (_: Exception) {
+                            setResult(RESULT_CANCELED)
+                            finish()
+                            return@AutofillSearchScreen
+                        }
                         val resultIntent = Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset)
                         setResult(RESULT_OK, resultIntent)
                         finish()
@@ -172,11 +178,13 @@ class AutofillSearchActivity : FragmentActivity() {
 
     @Suppress("DEPRECATION")
     private fun Intent.autofillIdExtra(key: String): AutofillId? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            getParcelableExtra(key, AutofillId::class.java)
-        } else {
-            getParcelableExtra(key)
-        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                getParcelableExtra(key, AutofillId::class.java)
+            } else {
+                getParcelableExtra(key)
+            }
+        }.getOrNull()
 }
 
 @Composable

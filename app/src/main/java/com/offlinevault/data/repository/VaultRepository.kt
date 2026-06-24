@@ -53,5 +53,11 @@ class VaultRepository(private val vaultDao: VaultDao) {
     }
 
     private fun decrypt(vault: VaultEntity): VaultEntity =
-        vault.copy(name = EncryptedField.decrypt(vault.name))
+        runCatching {
+            vault.copy(name = EncryptedField.decrypt(vault.name))
+        }.getOrElse {
+            // Keep the vault reachable even if its encrypted display name is damaged; credentials
+            // inside it remain independently encrypted and can still be listed/imported/exported.
+            vault.copy(name = "密码库")
+        }
 }

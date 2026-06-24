@@ -115,7 +115,8 @@ fun SettingsScreen(
     var pendingImportCsv by remember { mutableStateOf<String?>(null) }
     var pendingImportAction by remember { mutableStateOf<SettingsPendingImportAction?>(null) }
     var pendingImportPreview by remember { mutableStateOf<ImportPreview?>(null) }
-    var csvTargetPick by remember { mutableStateOf(false) }
+    var csvImportTargetPick by remember { mutableStateOf(false) }
+    var csvExportTargetPick by remember { mutableStateOf(false) }
     var showPasteImport by remember { mutableStateOf(false) }
     var askExportPassword by remember { mutableStateOf(false) }
     var csvFormatPick by remember { mutableStateOf(false) }
@@ -168,7 +169,7 @@ fun SettingsScreen(
                 previewCsvImport(text, "")
             } else {
                 pendingImportCsv = text
-                csvTargetPick = true
+                csvImportTargetPick = true
             }
         } else {
             pendingImportJson = text
@@ -721,7 +722,7 @@ fun SettingsScreen(
         fun proceed(slim: Boolean) {
             pendingCsvSlim = slim
             csvFormatPick = false
-            if (vaults.size == 1) launchCsvSave(vaults.first().id) else csvTargetPick = true
+            if (vaults.size == 1) launchCsvSave(vaults.first().id) else csvExportTargetPick = true
         }
         AlertDialog(
             onDismissRequest = { csvFormatPick = false },
@@ -759,23 +760,31 @@ fun SettingsScreen(
         )
     }
 
-    // ---- CSV vault picker (export or import target) ----
-    if (csvTargetPick) {
-        val importing = pendingImportCsv != null
+    // ---- CSV import target picker ----
+    if (csvImportTargetPick) {
         VaultPickDialog(
-            title = if (importing) "导入到哪个密码库？" else "导出哪个密码库？",
+            title = "导入到哪个密码库？",
             vaults = vaults.map { it.id to it.name },
             onPick = { id ->
-                csvTargetPick = false
-                if (importing) {
-                    val csv = pendingImportCsv
-                    pendingImportCsv = null
-                    if (csv != null) previewCsvImport(csv, id)
-                } else {
-                    launchCsvSave(id)
-                }
+                csvImportTargetPick = false
+                val csv = pendingImportCsv
+                pendingImportCsv = null
+                if (csv != null) previewCsvImport(csv, id)
             },
-            onDismiss = { csvTargetPick = false; pendingImportCsv = null }
+            onDismiss = { csvImportTargetPick = false; pendingImportCsv = null }
+        )
+    }
+
+    // ---- CSV export vault picker ----
+    if (csvExportTargetPick) {
+        VaultPickDialog(
+            title = "导出哪个密码库？",
+            vaults = vaults.map { it.id to it.name },
+            onPick = { id ->
+                csvExportTargetPick = false
+                launchCsvSave(id)
+            },
+            onDismiss = { csvExportTargetPick = false }
         )
     }
 

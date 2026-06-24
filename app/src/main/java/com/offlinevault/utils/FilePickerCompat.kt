@@ -32,7 +32,9 @@ object FilePickerCompat {
     fun createDirectGetContentIntent(): Intent = buildGetContentIntent()
 
     fun extractUri(resultData: Intent?): Uri? =
-        resultData?.data ?: resultData?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+        resultData?.data ?: runCatching {
+            resultData?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+        }.getOrNull()
 
     fun persistReadPermission(context: Context, uri: Uri) {
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -41,6 +43,7 @@ object FilePickerCompat {
         } catch (_: SecurityException) {
         } catch (_: UnsupportedOperationException) {
         } catch (_: IllegalArgumentException) {
+        } catch (_: RuntimeException) {
         }
     }
 

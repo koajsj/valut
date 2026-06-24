@@ -92,8 +92,10 @@ fun PasswordDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, contentDescription = "编辑") }
-                    IconButton(onClick = { confirmDelete = true }) {
+                    IconButton(onClick = onEdit, enabled = item != null) {
+                        Icon(Icons.Filled.Edit, contentDescription = "编辑")
+                    }
+                    IconButton(onClick = { confirmDelete = true }, enabled = item != null) {
                         Icon(Icons.Filled.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
                     }
                 },

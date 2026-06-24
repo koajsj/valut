@@ -12,17 +12,26 @@ object PendingAutofillSave {
 
     data class Capture(val identifier: String, val username: String, val password: String)
 
+    private const val MAX_PENDING_AGE_MS = 5 * 60 * 1000L
+
+    private data class PendingCapture(
+        val capture: Capture,
+        val createdAt: Long = System.currentTimeMillis()
+    )
+
     @Volatile
-    private var pending: Capture? = null
+    private var pending: PendingCapture? = null
 
     fun set(capture: Capture) {
-        pending = capture
+        pending = PendingCapture(capture)
     }
 
     /** Returns the pending capture (if any) and clears it. */
     fun consume(): Capture? {
         val current = pending
         pending = null
-        return current
+        if (current == null) return null
+        val expired = System.currentTimeMillis() - current.createdAt > MAX_PENDING_AGE_MS
+        return if (expired) null else current.capture
     }
 }

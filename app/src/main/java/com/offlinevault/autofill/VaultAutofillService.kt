@@ -68,25 +68,33 @@ class VaultAutofillService : AutofillService() {
     ) {
         val structure = request.fillContexts.lastOrNull()?.structure
         if (structure == null) {
-            callback.onSuccess(null)
+            callback.safeSuccess(null)
             return
         }
 
-        val parsed = parseStructure(structure)
+        val parsed = try {
+            parseStructure(structure)
+        } catch (_: Exception) {
+            callback.safeSuccess(null)
+            return
+        }
         // Never operate on our own UI, and require at least one fillable field.
         if (parsed.packageName == applicationContext.packageName ||
             (parsed.passwordId == null && parsed.usernameId == null)
         ) {
-            callback.onSuccess(null)
+            callback.safeSuccess(null)
             return
         }
 
-        val saveInfo = buildSaveInfo(parsed)
+        val saveInfo = runCatching { buildSaveInfo(parsed) }.getOrNull()
 
         // While locked there is no key, so no datasets can be built — but we still register the
         // SaveInfo so the user can save credentials they type now (persisted after the next unlock).
         if (!SessionManager.isUnlocked) {
-            callback.onSuccess(saveInfo?.let { FillResponse.Builder().setSaveInfo(it).build() })
+            val response = runCatching {
+                saveInfo?.let { FillResponse.Builder().setSaveInfo(it).build() }
+            }.getOrNull()
+            callback.safeSuccess(response)
             return
         }
 
@@ -109,13 +117,13 @@ class VaultAutofillService : AutofillService() {
                     builder.setSaveInfo(saveInfo)
                     hasContent = true
                 }
-                callback.onSuccess(if (hasContent) builder.build() else null)
+                callback.safeSuccess(if (hasContent) builder.build() else null)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // Never let an unexpected failure escape the launch — that would crash the autofill
                 // service process. Fail gracefully by offering nothing.
-                runCatching { callback.onSuccess(null) }
+                callback.safeSuccess(null)
             }
         }
     }
@@ -136,16 +144,21 @@ class VaultAutofillService : AutofillService() {
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
         val structure = request.fillContexts.lastOrNull()?.structure
         if (structure == null) {
-            callback.onSuccess()
+            callback.safeSuccess()
             return
         }
-        val parsed = parseStructure(structure)
+        val parsed = try {
+            parseStructure(structure)
+        } catch (_: Exception) {
+            callback.safeSuccess()
+            return
+        }
         val identifier = parsed.identifier
         val password = parsed.passwordValue
         if (parsed.packageName == applicationContext.packageName ||
             identifier == null || password.isNullOrEmpty()
         ) {
-            callback.onSuccess()
+            callback.safeSuccess()
             return
         }
         val capture = PendingAutofillSave.Capture(
@@ -181,7 +194,15 @@ class VaultAutofillService : AutofillService() {
                 )
             }
         }
-        callback.onSuccess()
+        callback.safeSuccess()
+    }
+
+    private fun FillCallback.safeSuccess(response: FillResponse?) {
+        runCatching { onSuccess(response) }
+    }
+
+    private fun SaveCallback.safeSuccess() {
+        runCatching { onSuccess() }
     }
 
     // ---- Matching ----------------------------------------------------------

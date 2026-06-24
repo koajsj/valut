@@ -355,7 +355,7 @@ class BackupManager(
         val candidatesByVault = prepared.candidates.groupBy { it.vaultId }
         for ((vaultId, vaultCandidates) in candidatesByVault) {
             try {
-                val existingByKey = buildCandidateIndex(passwordRepository.decryptedForVault(vaultId))
+                val existingByKey = buildCandidateIndex(passwordRepository.decryptedForVaultSkippingCorrupt(vaultId))
 
                 when (strategy) {
                     ImportConflictStrategy.SKIP -> {
@@ -464,7 +464,7 @@ class BackupManager(
     ): Map<String, Map<String, List<DecryptedPassword>>> {
         val result = mutableMapOf<String, Map<String, List<DecryptedPassword>>>()
         for (vaultId in vaultIds.distinct().filterNot { it == NEW_IMPORT_VAULT_PLACEHOLDER }) {
-            result[vaultId] = buildCandidateIndex(passwordRepository.decryptedForVault(vaultId))
+            result[vaultId] = buildCandidateIndex(passwordRepository.decryptedForVaultSkippingCorrupt(vaultId))
         }
         return result
     }
@@ -570,7 +570,7 @@ class BackupManager(
     ): DecryptedPassword? {
         val keyed = candidate.matchKeys()
             .flatMap { index[it].orEmpty() }
-            .distinctBy { it.id.ifBlank { "${it.title}|${it.username}|${it.url}|${it.password}" } }
+            .distinctBy { it.id.ifBlank { "candidate:${System.identityHashCode(it)}" } }
         return keyed.firstOrNull { isSameCredential(it, candidate) }
     }
 
@@ -611,7 +611,7 @@ class BackupManager(
             if (user.isNotEmpty() && normalizedTitle.isNotEmpty()) add("title:$normalizedTitle|user:$user")
             if (user.isNotEmpty()) tokens.forEach { add("token:$it|user:$user") }
             if (user.isEmpty() && host != null && normalizedTitle.isNotEmpty()) add("host:$host|title:$normalizedTitle")
-            if (user.isEmpty() && host != null && password.trim().isNotEmpty()) add("host:$host|pw:${password.trim()}")
+            if (user.isEmpty() && host != null && password.trim().isNotEmpty()) add("host:$host|empty-user")
         }
     }
 

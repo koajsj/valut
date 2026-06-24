@@ -256,10 +256,22 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
             decrypt(it)
         }
 
+    suspend fun allDecryptedSkippingCorrupt(): List<DecryptedPassword> =
+        passwordDao.getAllOnce().mapNotNull {
+            coroutineContext.ensureActive()
+            runCatching { decrypt(it) }.getOrNull()
+        }
+
     suspend fun decryptedForVault(vaultId: String): List<DecryptedPassword> =
         passwordDao.getPasswordsByVaultIdOnce(vaultId).map {
             coroutineContext.ensureActive()
             decrypt(it)
+        }
+
+    suspend fun decryptedForVaultSkippingCorrupt(vaultId: String): List<DecryptedPassword> =
+        passwordDao.getPasswordsByVaultIdOnce(vaultId).mapNotNull {
+            coroutineContext.ensureActive()
+            runCatching { decrypt(it) }.getOrNull()
         }
 
     /**

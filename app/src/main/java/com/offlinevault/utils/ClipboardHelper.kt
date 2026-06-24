@@ -24,14 +24,14 @@ object ClipboardHelper {
         val effectiveClearSeconds =
             if (clearAfterSeconds > 0) clearAfterSeconds else DEFAULT_SENSITIVE_CLEAR_SECONDS
         val appContext = context.applicationContext
-        val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         val clip = ClipData.newPlainText(label, value)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             clip.description.extras = PersistableBundle().apply {
                 putBoolean("android.content.extra.IS_SENSITIVE", true)
             }
         }
-        clipboard.setPrimaryClip(clip)
+        runCatching { clipboard.setPrimaryClip(clip) }.getOrElse { return }
 
         pendingClear?.let { handler.removeCallbacks(it) }
         pendingClear = null
@@ -41,8 +41,8 @@ object ClipboardHelper {
     }
 
     fun copyPlain(context: Context, label: String, value: String) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, value)) }
     }
 
     /**
@@ -52,7 +52,7 @@ object ClipboardHelper {
      * the user has since copied something different, so we don't stomp their newer clipboard content.
      */
     private fun clear(context: Context, expected: String) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         val current = runCatching { clipboard.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull()
         if (current == null || current == expected) {
             runCatching {

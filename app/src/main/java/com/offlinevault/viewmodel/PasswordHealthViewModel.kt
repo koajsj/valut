@@ -61,7 +61,7 @@ class PasswordHealthViewModel(
     }
 
     private suspend fun buildReport(): HealthReport {
-        val all = passwordRepository.allDecrypted()
+        val all = passwordRepository.allDecryptedSkippingCorrupt()
         val withPassword = all.filter { it.password.isNotBlank() }
 
         val weak = withPassword

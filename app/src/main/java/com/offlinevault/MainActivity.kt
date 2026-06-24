@@ -106,10 +106,10 @@ class MainActivity : FragmentActivity() {
         // here. (Our own autofill service only reads OTHER apps, so this does not affect it.)
         window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
 
-        // Use dark system-bar icons on the app's white background.
+        // Dark UI: keep system-bar icons light and readable over the transparent bars.
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
         )
 
         // Apply / clear FLAG_SECURE reactively from the screenshot-block setting.
