@@ -159,6 +159,18 @@ fun SettingsScreen(
         pendingCsvVaultId = null
     }
 
+    fun previewCsvImport(text: String, vaultId: String) {
+        viewModel.previewCsvImport(text, vaultId) { result ->
+            val preview = result.preview
+            if (preview != null) {
+                pendingImportAction = SettingsPendingImportAction.Csv(text, vaultId)
+                pendingImportPreview = preview
+            } else {
+                toast(result.errorMessage ?: "无法预览 CSV")
+            }
+        }
+    }
+
     fun handleImportText(text: String, sourceName: String = "") {
         if (text.isBlank()) {
             toast("导入内容为空")
@@ -174,18 +186,6 @@ fun SettingsScreen(
         } else {
             pendingImportJson = text
             importPasswordPrompt = true
-        }
-    }
-
-    fun previewCsvImport(text: String, vaultId: String) {
-        viewModel.previewCsvImport(text, vaultId) { result ->
-            val preview = result.preview
-            if (preview != null) {
-                pendingImportAction = SettingsPendingImportAction.Csv(text, vaultId)
-                pendingImportPreview = preview
-            } else {
-                toast(result.errorMessage ?: "无法预览 CSV")
-            }
         }
     }
 

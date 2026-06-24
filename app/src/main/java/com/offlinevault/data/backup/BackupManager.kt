@@ -35,8 +35,6 @@ class BackupManager(
         val note: String,
         val favorite: Boolean = false
     ) {
-        fun matchKeys(): Set<String> = buildMatchKeys(title, username, password, url)
-
         fun toDecrypted(id: String = "") = DecryptedPassword(
             id = id,
             vaultId = vaultId,
@@ -523,6 +521,9 @@ class BackupManager(
     }
 
     private fun DecryptedPassword.matchKeys(): Set<String> =
+        buildMatchKeys(title, username, password, url)
+
+    private fun ImportCandidate.matchKeys(): Set<String> =
         buildMatchKeys(title, username, password, url)
 
     private fun buildCandidateIndex(items: List<DecryptedPassword>): MutableMap<String, MutableList<DecryptedPassword>> {

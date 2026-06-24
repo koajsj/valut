@@ -37,6 +37,7 @@ import com.offlinevault.ui.components.IconBadge
 import com.offlinevault.ui.components.PasswordVisualField
 import com.offlinevault.ui.components.PrimaryButton
 import com.offlinevault.ui.components.SectionCard
+import com.offlinevault.ui.components.SecureWindowEffect
 import com.offlinevault.ui.components.StrengthMeter
 import com.offlinevault.ui.components.VaultTextField
 
@@ -64,6 +65,8 @@ fun RecoverScreen(
         0 -> answer.isNotBlank() && credentialType.isValid(newPassword) && confirm.isNotEmpty()
         else -> mnemonic.isNotBlank() && credentialType.isValid(newPassword) && confirm.isNotEmpty()
     }
+
+    SecureWindowEffect(enabled = mode == 1)
 
     Column(
         Modifier
