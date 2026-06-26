@@ -582,7 +582,12 @@ class BackupManager(
 
         val existingHost = comparableHost(existing.url)
         val candidateHost = comparableHost(candidate.url)
-        if (existingHost != null && candidateHost != null && existingHost == candidateHost) return true
+        if (existingHost != null && candidateHost != null &&
+            existingHost == candidateHost &&
+            (existingUser.isNotEmpty() || candidateUser.isNotEmpty())
+        ) {
+            return true
+        }
 
         val existingTitle = existing.title.normalizedTitle()
         val candidateTitle = candidate.title.normalizedTitle()
