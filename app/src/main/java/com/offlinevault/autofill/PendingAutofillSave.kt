@@ -12,7 +12,7 @@ object PendingAutofillSave {
 
     data class Capture(val identifier: String, val username: String, val password: String)
 
-    private const val MAX_PENDING_AGE_MS = 5 * 60 * 1000L
+    private const val MAX_PENDING_AGE_MS = 15 * 60 * 1000L
 
     private data class PendingCapture(
         val capture: Capture,

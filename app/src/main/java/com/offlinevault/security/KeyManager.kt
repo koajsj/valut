@@ -206,6 +206,34 @@ class KeyManager(
         return UnlockResult.Success
     }
 
+    /** Verifies the current master credential without unlocking or exposing the DEK to callers. */
+    suspend fun verifyMasterCredential(masterPassword: String): UnlockResult {
+        val delay = unlockDelaySeconds()
+        if (delay > 0) return UnlockResult.Delayed(delay)
+
+        val saltB64 = prefs.masterSalt() ?: return UnlockResult.Error("密码库尚未初始化")
+        val wrappedB64 = prefs.masterWrappedDek() ?: return UnlockResult.Error("密码库尚未初始化")
+
+        return try {
+            val masterKey = CryptoManager.deriveKey(
+                masterPassword.toCharArray(),
+                CryptoManager.decode(saltB64),
+                prefs.masterIterations()
+            )
+            val dekBytes = CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64))
+            dekBytes.fill(0)
+            prefs.resetFailures()
+            UnlockResult.Success
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: AEADBadTagException) {
+            prefs.recordFailure()
+            UnlockResult.WrongCredential
+        } catch (_: Exception) {
+            UnlockResult.Error("无法读取加密密钥，数据可能已损坏")
+        }
+    }
+
     /** Replace the security question / answer. Requires the vault to be currently unlocked. */
     suspend fun changeRecovery(question: String, answer: String) {
         require(question.isNotBlank()) { "安全问题不能为空" }

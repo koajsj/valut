@@ -59,6 +59,8 @@ class OfflineVaultApp : Application() {
         }
         if (saved) {
             Toast.makeText(this, "已将账号保存到密码库", Toast.LENGTH_SHORT).show()
+        } else {
+            PendingAutofillSave.set(capture)
         }
     }
 }

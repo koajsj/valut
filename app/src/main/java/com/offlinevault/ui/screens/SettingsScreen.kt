@@ -106,6 +106,9 @@ fun SettingsScreen(
     var showAbout by remember { mutableStateOf(false) }
     var pendingMnemonicWords by remember { mutableStateOf<List<String>?>(null) }
     var pendingMnemonicMasterPassword by remember { mutableStateOf<String?>(null) }
+    var pendingMnemonicError by remember { mutableStateOf<String?>(null) }
+    var pendingMnemonicSaving by remember { mutableStateOf(false) }
+    var verifyingMnemonicMaster by remember { mutableStateOf(false) }
 
     // Pending values across file picker round-trips.
     var pendingJsonBackup by remember { mutableStateOf<String?>(null) }
@@ -605,11 +608,23 @@ fun SettingsScreen(
                 "请输入当前主密码后生成新的 12 个助记词。助记词不会明文保存，只展示一次。",
             confirmLabel = "继续",
             credentialType = credentialType,
-            onDismiss = { showMnemonicPasswordPrompt = false },
+            onDismiss = { if (!verifyingMnemonicMaster) showMnemonicPasswordPrompt = false },
             onConfirm = { masterPassword ->
-                pendingMnemonicMasterPassword = masterPassword
-                pendingMnemonicWords = mnemonicManager.generateWords()
-                showMnemonicPasswordPrompt = false
+                if (!verifyingMnemonicMaster) {
+                    verifyingMnemonicMaster = true
+                    viewModel.verifyMasterCredential(masterPassword) { ok, msg ->
+                        verifyingMnemonicMaster = false
+                        if (ok) {
+                            pendingMnemonicMasterPassword = masterPassword
+                            pendingMnemonicWords = mnemonicManager.generateWords()
+                            pendingMnemonicError = null
+                            pendingMnemonicSaving = false
+                            showMnemonicPasswordPrompt = false
+                        } else {
+                            toast(msg ?: "当前密码不正确")
+                        }
+                    }
+                }
             }
         )
     }
@@ -617,32 +632,49 @@ fun SettingsScreen(
     if (pendingMnemonicWords != null && pendingMnemonicMasterPassword != null) {
         AlertDialog(
             onDismissRequest = {
-                pendingMnemonicWords = null
-                pendingMnemonicMasterPassword = null
+                if (!pendingMnemonicSaving) {
+                    pendingMnemonicWords = null
+                    pendingMnemonicMasterPassword = null
+                    pendingMnemonicError = null
+                }
             },
             title = { Text(if (mnemonicEnabled) "重新生成助记词" else "启用助记词恢复") },
             text = {
                 MnemonicConfirmationContent(
                     words = pendingMnemonicWords!!,
-                    actionLabel = if (mnemonicEnabled) "启用新助记词" else "启用助记词恢复",
+                    actionLabel = when {
+                        pendingMnemonicSaving -> "正在启用…"
+                        mnemonicEnabled -> "启用新助记词"
+                        else -> "启用助记词恢复"
+                    },
+                    enabled = !pendingMnemonicSaving,
+                    errorMessage = pendingMnemonicError,
                     onBack = {
-                        pendingMnemonicWords = null
-                        pendingMnemonicMasterPassword = null
+                        if (!pendingMnemonicSaving) {
+                            pendingMnemonicWords = null
+                            pendingMnemonicMasterPassword = null
+                            pendingMnemonicError = null
+                        }
                     },
                     onConfirm = {
                         val masterPassword = pendingMnemonicMasterPassword
                         val phrase = pendingMnemonicWords?.joinToString(" ")
-                        pendingMnemonicWords = null
-                        pendingMnemonicMasterPassword = null
                         if (masterPassword != null && phrase != null) {
+                            val replacingExistingMnemonic = mnemonicEnabled
+                            pendingMnemonicSaving = true
                             viewModel.updateMnemonicRecovery(masterPassword, phrase) { ok, msg ->
-                                toast(
-                                    when {
-                                        ok && mnemonicEnabled -> "助记词已重新生成，旧助记词已失效"
-                                        ok -> "助记词恢复已启用"
-                                        else -> msg ?: "操作失败"
-                                    }
-                                )
+                                pendingMnemonicSaving = false
+                                if (ok) {
+                                    pendingMnemonicWords = null
+                                    pendingMnemonicMasterPassword = null
+                                    pendingMnemonicError = null
+                                    toast(
+                                        if (replacingExistingMnemonic) "助记词已重新生成，旧助记词已失效"
+                                        else "助记词恢复已启用"
+                                    )
+                                } else {
+                                    pendingMnemonicError = "${msg ?: "操作失败"}；此助记词尚未启用"
+                                }
                             }
                         }
                     }

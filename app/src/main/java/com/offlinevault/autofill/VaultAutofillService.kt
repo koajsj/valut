@@ -45,6 +45,7 @@ class VaultAutofillService : AutofillService() {
     private data class ParsedFields(
         val usernameId: AutofillId?,
         val passwordId: AutofillId?,
+        val extraPasswordIds: List<AutofillId>,
         val webDomain: String?,
         val packageName: String?,
         val usernameValue: String?,
@@ -60,6 +61,13 @@ class VaultAutofillService : AutofillService() {
 
         fun fillableIds(): List<AutofillId> = listOfNotNull(usernameId, passwordId)
     }
+
+    private data class FieldCandidate(
+        val id: AutofillId,
+        val value: String?,
+        val order: Int,
+        val score: Int = 0
+    )
 
     override fun onFillRequest(
         request: FillRequest,
@@ -133,12 +141,75 @@ class VaultAutofillService : AutofillService() {
         val passwordId = parsed.passwordId ?: return null
         if (parsed.identifier == null) return null
         var type = SaveInfo.SAVE_DATA_TYPE_PASSWORD
-        val ids = mutableListOf(passwordId)
-        parsed.usernameId?.let {
+        if (parsed.usernameId != null) {
             type = type or SaveInfo.SAVE_DATA_TYPE_USERNAME
-            ids.add(it)
         }
-        return SaveInfo.Builder(type, ids.toTypedArray()).build()
+        val optionalIds = (listOfNotNull(parsed.usernameId) + parsed.extraPasswordIds).distinct()
+        return SaveInfo.Builder(type, arrayOf(passwordId)).apply {
+            if (optionalIds.isNotEmpty()) setOptionalIds(optionalIds.toTypedArray())
+            setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE)
+        }.build()
+    }
+
+    private fun parseStructure(structure: AssistStructure): ParsedFields {
+        val usernameCandidates = mutableListOf<FieldCandidate>()
+        val passwordCandidates = mutableListOf<FieldCandidate>()
+        var webDomain: String? = null
+        val packageName = structure.activityComponent?.packageName
+        var order = 0
+
+        fun traverse(node: AssistStructure.ViewNode) {
+            if (node.webDomain?.isNotEmpty() == true && webDomain == null) {
+                webDomain = node.webDomain
+            }
+            val autofillId = node.autofillId
+            if (autofillId != null && node.autofillType == View.AUTOFILL_TYPE_TEXT) {
+                val hints = node.autofillHints?.map { it.lowercase() } ?: emptyList()
+                val inputType = node.inputType
+                val value = textValueOf(node)
+                val fieldOrder = order++
+                val isPassword = hints.any { it.contains("password") } ||
+                    isPasswordInput(inputType) ||
+                    looksLikePassword(node)
+                val usernameScore = usernameScore(node, hints, inputType)
+
+                if (isPassword) {
+                    passwordCandidates += FieldCandidate(autofillId, value, fieldOrder)
+                } else if (usernameScore > 0) {
+                    usernameCandidates += FieldCandidate(autofillId, value, fieldOrder, usernameScore)
+                }
+            }
+            for (i in 0 until node.childCount) {
+                traverse(node.getChildAt(i))
+            }
+        }
+
+        for (i in 0 until structure.windowNodeCount) {
+            traverse(structure.getWindowNodeAt(i).rootViewNode)
+        }
+
+        val primaryPassword = passwordCandidates.firstOrNull()
+        val firstPasswordOrder = primaryPassword?.order ?: Int.MAX_VALUE
+        val primaryUsername = usernameCandidates
+            .filter { it.order < firstPasswordOrder }
+            .maxWithOrNull(compareBy<FieldCandidate> { it.score }.thenBy { it.order })
+            ?: usernameCandidates.maxWithOrNull(compareBy<FieldCandidate> { it.score }.thenBy { -it.order })
+        val usernameValue = primaryUsername?.value?.takeIf { it.isNotBlank() }
+            ?: usernameCandidates.firstNotNullOfOrNull { it.value?.takeIf(String::isNotBlank) }
+        val passwordValue = passwordCandidates
+            .asReversed()
+            .firstNotNullOfOrNull { it.value?.takeIf { value -> value.isNotEmpty() } }
+            ?: primaryPassword?.value
+
+        return ParsedFields(
+            usernameId = primaryUsername?.id,
+            passwordId = primaryPassword?.id,
+            extraPasswordIds = passwordCandidates.drop(1).map { it.id },
+            webDomain = webDomain,
+            packageName = packageName,
+            usernameValue = usernameValue,
+            passwordValue = passwordValue
+        )
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
@@ -278,47 +349,6 @@ class VaultAutofillService : AutofillService() {
 
     // ---- Structure parsing -------------------------------------------------
 
-    private fun parseStructure(structure: AssistStructure): ParsedFields {
-        var usernameId: AutofillId? = null
-        var passwordId: AutofillId? = null
-        var usernameValue: String? = null
-        var passwordValue: String? = null
-        var webDomain: String? = null
-        val packageName = structure.activityComponent?.packageName
-
-        fun traverse(node: AssistStructure.ViewNode) {
-            if (node.webDomain?.isNotEmpty() == true && webDomain == null) {
-                webDomain = node.webDomain
-            }
-            val autofillId = node.autofillId
-            if (autofillId != null && node.autofillType == View.AUTOFILL_TYPE_TEXT) {
-                val hints = node.autofillHints?.map { it.lowercase() } ?: emptyList()
-                val inputType = node.inputType
-                val isPassword = hints.any { it.contains("password") } || isPasswordInput(inputType)
-                val isUsername = hints.any {
-                    it.contains("username") || it.contains("email") || it == View.AUTOFILL_HINT_EMAIL_ADDRESS.lowercase()
-                } || looksLikeUsername(node)
-
-                if (isPassword && passwordId == null) {
-                    passwordId = autofillId
-                    passwordValue = textValueOf(node)
-                } else if (isUsername && usernameId == null) {
-                    usernameId = autofillId
-                    usernameValue = textValueOf(node)
-                }
-            }
-            for (i in 0 until node.childCount) {
-                traverse(node.getChildAt(i))
-            }
-        }
-
-        for (i in 0 until structure.windowNodeCount) {
-            traverse(structure.getWindowNodeAt(i).rootViewNode)
-        }
-
-        return ParsedFields(usernameId, passwordId, webDomain, packageName, usernameValue, passwordValue)
-    }
-
     /** Reads the text the user has currently entered into a node, if any. */
     private fun textValueOf(node: AssistStructure.ViewNode): String? {
         val value = node.autofillValue
@@ -336,10 +366,54 @@ class VaultAutofillService : AutofillService() {
                 (inputType and InputType.TYPE_NUMBER_VARIATION_PASSWORD) != 0)
     }
 
+    private fun usernameScore(
+        node: AssistStructure.ViewNode,
+        hints: List<String>,
+        inputType: Int
+    ): Int {
+        var score = 0
+        if (hints.any { it.contains("username") || it.contains("login") || it.contains("account") }) score += 5
+        if (hints.any { it.contains("email") || it == View.AUTOFILL_HINT_EMAIL_ADDRESS.lowercase() }) score += 5
+        if (hints.any { it.contains("phone") || it.contains("tel") }) score += 4
+        if (isEmailOrPhoneInput(inputType)) score += 3
+        if (looksLikeUsername(node)) score += 3
+        return score
+    }
+
+    private fun isEmailOrPhoneInput(inputType: Int): Boolean {
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        val klass = inputType and InputType.TYPE_MASK_CLASS
+        return variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+            variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
+            klass == InputType.TYPE_CLASS_PHONE
+    }
+
+    private fun looksLikePassword(node: AssistStructure.ViewNode): Boolean {
+        val surfaces = textSurfaces(node)
+        val keywords = listOf("password", "passwd", "passcode", "pwd", "密码", "口令")
+        return keywords.any { keyword -> surfaces.any { it.contains(keyword) } }
+    }
+
     private fun looksLikeUsername(node: AssistStructure.ViewNode): Boolean {
-        val hint = (node.hint ?: "").lowercase()
-        val idEntry = (node.idEntry ?: "").lowercase()
-        val keywords = listOf("user", "email", "login", "account", "phone")
-        return keywords.any { hint.contains(it) || idEntry.contains(it) }
+        val surfaces = textSurfaces(node)
+        val keywords = listOf(
+            "username", "user_name", "userid", "user_id", "email", "e-mail", "mail",
+            "login", "loginid", "login_id", "account", "acct", "phone", "mobile",
+            "telephone", "tel", "账号", "帐号", "账户", "用户名", "邮箱", "手机", "电话"
+        )
+        return keywords.any { keyword -> surfaces.any { it.contains(keyword) } }
+    }
+
+    private fun textSurfaces(node: AssistStructure.ViewNode): List<String> {
+        val direct = listOfNotNull(
+            node.hint,
+            node.idEntry,
+            node.className?.toString(),
+            node.htmlInfo?.tag
+        )
+        val htmlAttributes = node.htmlInfo?.attributes.orEmpty().flatMap { attr ->
+            listOfNotNull(attr.first, attr.second)
+        }
+        return (direct + htmlAttributes).map { it.lowercase() }
     }
 }

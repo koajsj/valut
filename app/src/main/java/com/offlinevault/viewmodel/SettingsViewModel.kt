@@ -33,6 +33,7 @@ class SettingsViewModel(
 
     private var changeMasterJob: Job? = null
     private var changeRecoveryJob: Job? = null
+    private var verifyMasterJob: Job? = null
     private var changeMnemonicJob: Job? = null
     private var disableMnemonicJob: Job? = null
 
@@ -139,6 +140,26 @@ class SettingsViewModel(
                 throw e
             } catch (_: Exception) {
                 onResult(false, "无法更新安全问题")
+            }
+        }
+    }
+
+    fun verifyMasterCredential(masterPassword: String, onResult: (Boolean, String?) -> Unit) {
+        if (verifyMasterJob?.isActive == true) return
+        verifyMasterJob = viewModelScope.launch {
+            try {
+                when (val result = withContext(Dispatchers.Default) {
+                    keyManager.verifyMasterCredential(masterPassword)
+                }) {
+                    is UnlockResult.Success -> onResult(true, null)
+                    is UnlockResult.WrongCredential -> onResult(false, "当前密码不正确")
+                    is UnlockResult.Delayed -> onResult(false, "失败次数过多，请在 ${result.secondsRemaining} 秒后重试")
+                    is UnlockResult.Error -> onResult(false, result.message)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onResult(false, "无法验证当前密码")
             }
         }
     }

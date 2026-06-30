@@ -10,6 +10,7 @@ object OriginMatcher {
     const val APP_SCHEME = "androidapp://"
 
     fun matches(storedUrl: String, requestedDomain: String?): Boolean {
+        if (isAppIdentifier(storedUrl)) return false
         val requestedHost = normalizeHost(requestedDomain) ?: return false
         val storedHost = hostFromUrl(storedUrl) ?: return false
         return storedHost == requestedHost || comparableHost(storedHost) == comparableHost(requestedHost)
@@ -22,14 +23,14 @@ object OriginMatcher {
     fun matchesApp(storedUrl: String, requestedPackage: String?): Boolean {
         val pkg = requestedPackage?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
         val stored = storedUrl.trim().lowercase()
-        return stored == APP_SCHEME + pkg || stored == pkg
+        return stored == APP_SCHEME + pkg
     }
 
     /** True when two stored identifiers point at the same web origin or the same native app. */
     fun sameTarget(a: String, b: String): Boolean {
-        val pkgA = a.trim().lowercase().removePrefix(APP_SCHEME)
-        val pkgB = b.trim().lowercase().removePrefix(APP_SCHEME)
-        if (a.trim().startsWith(APP_SCHEME) || b.trim().startsWith(APP_SCHEME)) return pkgA == pkgB
+        val appA = appPackage(a)
+        val appB = appPackage(b)
+        if (appA != null || appB != null) return appA != null && appA == appB
         val hostA = hostFromUrl(a) ?: return a.trim().equals(b.trim(), ignoreCase = true)
         val hostB = hostFromUrl(b) ?: return false
         return hostA == hostB || comparableHost(hostA) == comparableHost(hostB)
@@ -44,6 +45,7 @@ object OriginMatcher {
     fun hostFromUrl(value: String): String? {
         val trimmed = value.trim()
         if (trimmed.isEmpty()) return null
+        if (isAppIdentifier(trimmed)) return null
         val withScheme = if ("://" in trimmed) trimmed else "https://$trimmed"
         return runCatching { normalizeHost(URI(withScheme).host) }.getOrNull()
     }
@@ -57,4 +59,14 @@ object OriginMatcher {
     }
 
     private fun comparableHost(host: String): String = host.removePrefix("www.")
+
+    private fun isAppIdentifier(value: String): Boolean =
+        value.trim().lowercase().startsWith(APP_SCHEME)
+
+    private fun appPackage(value: String): String? =
+        value.trim()
+            .lowercase()
+            .takeIf { it.startsWith(APP_SCHEME) }
+            ?.removePrefix(APP_SCHEME)
+            ?.takeIf { it.isNotEmpty() }
 }

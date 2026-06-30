@@ -8,6 +8,8 @@ class CsvUtilsTest {
     @Test fun escapesFormulaCells() {
         assertEquals("'=SUM(A1:A2)", CsvUtils.escape("=SUM(A1:A2)"))
         assertEquals("'+secret", CsvUtils.escape("+secret"))
+        assertEquals("'  =SUM(A1:A2)", CsvUtils.escape("  =SUM(A1:A2)"))
+        assertEquals("'\t@danger", CsvUtils.escape("\t@danger"))
     }
 
     @Test fun parsesQuotedFieldsAndNewlines() {

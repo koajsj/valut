@@ -46,6 +46,8 @@ fun MnemonicConfirmationContent(
     words: List<String>,
     modifier: Modifier = Modifier,
     actionLabel: String,
+    enabled: Boolean = true,
+    errorMessage: String? = null,
     onBack: () -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -98,9 +100,10 @@ fun MnemonicConfirmationContent(
                     )
                     if (localIndex != verifyIndexes.lastIndex) Spacer(Modifier.height(10.dp))
                 }
-                if (error != null) {
+                val shownError = error ?: errorMessage
+                if (shownError != null) {
                     Spacer(Modifier.height(10.dp))
-                    Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    Text(shownError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -108,7 +111,7 @@ fun MnemonicConfirmationContent(
         Spacer(Modifier.height(20.dp))
         PrimaryButton(
             text = actionLabel,
-            enabled = inputs.all { it.isNotBlank() },
+            enabled = enabled && inputs.all { it.isNotBlank() },
             onClick = {
                 val ok = verifyIndexes.withIndex().all { (i, wordIndex) ->
                     inputs[i].trim().lowercase() == words[wordIndex]
@@ -117,6 +120,7 @@ fun MnemonicConfirmationContent(
                     error = "助记词校验失败，请检查离线备份后重试"
                     return@PrimaryButton
                 }
+                error = null
                 onConfirm()
             },
             modifier = Modifier.fillMaxWidth()
@@ -218,7 +222,7 @@ private fun MnemonicChip(index: Int, word: String) {
         ) {
             Text(index.toString(), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
         }
-        Spacer(Modifier.height(0.dp))
-        Text("  $word", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.width(8.dp))
+        Text(word, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }

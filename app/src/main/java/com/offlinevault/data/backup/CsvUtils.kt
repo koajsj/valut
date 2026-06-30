@@ -41,16 +41,22 @@ object CsvUtils {
     }
 
     // Leading characters a spreadsheet may interpret as the start of a formula (CSV injection).
-    private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@', '\t', '\r')
+    private val FORMULA_TRIGGERS = setOf('=', '+', '-', '@')
+    private val FORMULA_PREFIX_WHITESPACE = setOf(' ', '\t', '\r', '\n')
 
     fun escape(value: String): String {
         // Neutralise CSV/formula injection: a cell that opens with a formula trigger gets a leading
         // apostrophe so Excel / Sheets render it as literal text instead of evaluating it.
-        val guarded = if (value.isNotEmpty() && value[0] in FORMULA_TRIGGERS) "'$value" else value
+        val guarded = if (startsLikeFormula(value)) "'$value" else value
         return if (guarded.contains(',') || guarded.contains('"') || guarded.contains('\n')) {
             "\"" + guarded.replace("\"", "\"\"") + "\""
         } else guarded
     }
 
     fun buildRow(fields: List<String>): String = fields.joinToString(",") { escape(it) }
+
+    private fun startsLikeFormula(value: String): Boolean {
+        val firstSignificant = value.dropWhile { it in FORMULA_PREFIX_WHITESPACE }.firstOrNull()
+        return firstSignificant != null && firstSignificant in FORMULA_TRIGGERS
+    }
 }
