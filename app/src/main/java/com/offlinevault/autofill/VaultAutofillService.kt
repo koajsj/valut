@@ -5,7 +5,6 @@ import android.app.assist.AssistStructure
 import android.content.Intent
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
-import android.service.autofill.Dataset
 import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
@@ -15,12 +14,10 @@ import android.service.autofill.SaveRequest
 import android.text.InputType
 import android.view.View
 import android.view.autofill.AutofillId
-import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
 import com.offlinevault.MainActivity
 import com.offlinevault.OfflineVaultApp
 import com.offlinevault.R
-import com.offlinevault.data.repository.DecryptedPassword
 import com.offlinevault.security.SessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -31,9 +28,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Offline autofill service. It NEVER touches the network — it only reads the locally decrypted
- * vault while the app is unlocked, matches credentials against the requesting package / web domain,
- * and offers them as datasets. It also offers to SAVE newly typed credentials via the platform's
- * native "save" prompt.
+ * vault while the app is unlocked and requires a user pick before returning a fill dataset. It also
+ * offers to SAVE newly typed credentials via the platform's native "save" prompt.
  *
  * When the vault is locked there is no key in memory, so no credentials can be offered for fill;
  * saving is deferred until the next unlock.
@@ -108,15 +104,10 @@ class VaultAutofillService : AutofillService() {
 
         serviceScope.launch {
             try {
-                val matches = findMatches(parsed)
                 if (cancellationSignal.isCanceled) return@launch
 
                 val builder = FillResponse.Builder()
                 var hasContent = false
-                for (item in matches) {
-                    builder.addDataset(buildDataset(item, parsed))
-                    hasContent = true
-                }
                 buildManualSearchPresentation(parsed)?.let { (intentSender, presentation) ->
                     builder.setAuthentication(parsed.fillableIds().toTypedArray(), intentSender, presentation)
                     hasContent = true
@@ -278,51 +269,12 @@ class VaultAutofillService : AutofillService() {
 
     // ---- Matching ----------------------------------------------------------
 
-    private suspend fun findMatches(parsed: ParsedFields): List<DecryptedPassword> {
-        val repo = (application as OfflineVaultApp).container.passwordRepository
-        return try {
-            when {
-                !parsed.webDomain.isNullOrBlank() ->
-                    repo.decryptedMatching { OriginMatcher.matches(it, parsed.webDomain) }
-                !parsed.packageName.isNullOrBlank() ->
-                    repo.decryptedMatching { OriginMatcher.matchesApp(it, parsed.packageName) }
-                else -> emptyList()
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            emptyList()
-        }.take(8)
-    }
-
     override fun onDestroy() {
         serviceScope.cancel()
         super.onDestroy()
     }
 
-    // ---- Dataset building --------------------------------------------------
-
-    private fun buildDataset(item: DecryptedPassword, parsed: ParsedFields): Dataset {
-        val targetLabel = OriginMatcher.targetLabel(parsed.webDomain, parsed.packageName)
-        val presentation = RemoteViews(packageName, R.layout.autofill_item).apply {
-            setTextViewText(R.id.autofill_title, item.title.ifEmpty { "离线密码库" })
-            setTextViewText(
-                R.id.autofill_subtitle,
-                listOf(item.username.ifEmpty { item.url }, "当前：$targetLabel")
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · ")
-            )
-        }
-
-        val builder = Dataset.Builder(presentation)
-        parsed.usernameId?.let {
-            builder.setValue(it, AutofillValue.forText(item.username))
-        }
-        parsed.passwordId?.let {
-            builder.setValue(it, AutofillValue.forText(item.password))
-        }
-        return builder.build()
-    }
+    // ---- User-confirmed fill entry -----------------------------------------
 
     private fun buildManualSearchPresentation(parsed: ParsedFields): Pair<android.content.IntentSender, RemoteViews>? {
         if (parsed.fillableIds().isEmpty()) return null
@@ -341,7 +293,7 @@ class VaultAutofillService : AutofillService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val presentation = RemoteViews(packageName, R.layout.autofill_item).apply {
-            setTextViewText(R.id.autofill_title, "手动搜索其他账号")
+            setTextViewText(R.id.autofill_title, "选择账号填充")
             setTextViewText(R.id.autofill_subtitle, "当前：$targetLabel")
         }
         return pendingIntent.intentSender to presentation

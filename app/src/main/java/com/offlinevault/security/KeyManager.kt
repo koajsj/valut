@@ -29,6 +29,9 @@ class KeyManager(
     private val prefs: SecurityPreferences,
     private val mnemonicManager: MnemonicManager
 ) {
+    private companion object {
+        const val DEVICE_WRAPPED_PREFIX = "ks:v1:"
+    }
 
     /** First launch: create the DEK and wrap it under both the master password and recovery answer. */
     suspend fun setup(
@@ -60,14 +63,14 @@ class KeyManager(
         prefs.saveVaultMaterial(
             masterSalt = CryptoManager.encode(masterSalt),
             recoverySalt = CryptoManager.encode(recoverySalt),
-            masterWrappedDek = CryptoManager.encode(masterWrapped),
-            recoveryWrappedDek = CryptoManager.encode(recoveryWrapped),
+            masterWrappedDek = encodeWrappedDek(masterWrapped),
+            recoveryWrappedDek = encodeWrappedDek(recoveryWrapped),
             recoveryQuestion = recoveryQuestion,
             masterIterations = iterations,
             recoveryIterations = iterations,
             mnemonicSalt = CryptoManager.encode(mnemonicSalt),
-            mnemonicWrappedDek = CryptoManager.encode(mnemonicWrapped),
-            mnemonicVerifierHash = mnemonicVerifierHash
+            mnemonicWrappedDek = encodeWrappedDek(mnemonicWrapped),
+            mnemonicVerifierHash = encodeProtectedString(mnemonicVerifierHash)
         )
         prefs.resetFailures()
         SessionManager.unlock(dek)
@@ -87,7 +90,7 @@ class KeyManager(
         if (delay > 0) return UnlockResult.Delayed(delay)
 
         val saltB64 = prefs.masterSalt() ?: return UnlockResult.Error("密码库尚未初始化")
-        val wrappedB64 = prefs.masterWrappedDek() ?: return UnlockResult.Error("密码库尚未初始化")
+        val wrappedDek = masterWrappedDekBytes() ?: return UnlockResult.Error("密码库尚未初始化")
 
         return try {
             val masterKey = CryptoManager.deriveKey(
@@ -95,7 +98,7 @@ class KeyManager(
                 CryptoManager.decode(saltB64),
                 prefs.masterIterations()
             )
-            val dekBytes = CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64))
+            val dekBytes = CryptoManager.decrypt(masterKey, wrappedDek)
             prefs.resetFailures()
             SessionManager.unlock(secretKeyFromBytes(dekBytes))
             UnlockResult.Success
@@ -115,7 +118,7 @@ class KeyManager(
         if (delay > 0) return UnlockResult.Delayed(delay)
 
         val saltB64 = prefs.recoverySalt() ?: return UnlockResult.Error("未设置恢复信息")
-        val wrappedB64 = prefs.recoveryWrappedDek() ?: return UnlockResult.Error("未设置恢复信息")
+        val wrappedDek = recoveryWrappedDekBytes() ?: return UnlockResult.Error("未设置恢复信息")
 
         val dekBytes = try {
             val recoveryKey = CryptoManager.deriveKey(
@@ -123,7 +126,7 @@ class KeyManager(
                 CryptoManager.decode(saltB64),
                 prefs.recoveryIterations()
             )
-            CryptoManager.decrypt(recoveryKey, CryptoManager.decode(wrappedB64))
+            CryptoManager.decrypt(recoveryKey, wrappedDek)
         } catch (e: CancellationException) {
             throw e
         } catch (_: AEADBadTagException) {
@@ -146,8 +149,8 @@ class KeyManager(
         if (delay > 0) return UnlockResult.Delayed(delay)
 
         val saltB64 = prefs.mnemonicSalt() ?: return UnlockResult.Error("未启用助记词恢复")
-        val wrappedB64 = prefs.mnemonicWrappedDek() ?: return UnlockResult.Error("未启用助记词恢复")
-        val verifierHash = prefs.mnemonicVerifierHash() ?: return UnlockResult.Error("未启用助记词恢复")
+        val wrappedDek = mnemonicWrappedDekBytes() ?: return UnlockResult.Error("未启用助记词恢复")
+        val verifierHash = mnemonicVerifierHash() ?: return UnlockResult.Error("未启用助记词恢复")
         val normalizedMnemonic = mnemonicManager.normalize(mnemonicPhrase)
         if (!mnemonicManager.isValidPhrase(normalizedMnemonic)) {
             prefs.recordFailure()
@@ -161,7 +164,7 @@ class KeyManager(
                 return UnlockResult.WrongCredential
             }
             val mnemonicKey = mnemonicManager.deriveRecoveryKey(normalizedMnemonic, salt)
-            CryptoManager.decrypt(mnemonicKey, CryptoManager.decode(wrappedB64))
+            CryptoManager.decrypt(mnemonicKey, wrappedDek)
         } catch (e: CancellationException) {
             throw e
         } catch (_: AEADBadTagException) {
@@ -183,7 +186,7 @@ class KeyManager(
         if (delay > 0) return UnlockResult.Delayed(delay)
 
         val saltB64 = prefs.masterSalt() ?: return UnlockResult.Error("密码库尚未初始化")
-        val wrappedB64 = prefs.masterWrappedDek() ?: return UnlockResult.Error("密码库尚未初始化")
+        val wrappedDek = masterWrappedDekBytes() ?: return UnlockResult.Error("密码库尚未初始化")
 
         val dekBytes = try {
             val oldKey = CryptoManager.deriveKey(
@@ -191,7 +194,7 @@ class KeyManager(
                 CryptoManager.decode(saltB64),
                 prefs.masterIterations()
             )
-            CryptoManager.decrypt(oldKey, CryptoManager.decode(wrappedB64))
+            CryptoManager.decrypt(oldKey, wrappedDek)
         } catch (e: CancellationException) {
             throw e
         } catch (_: AEADBadTagException) {
@@ -212,7 +215,7 @@ class KeyManager(
         if (delay > 0) return UnlockResult.Delayed(delay)
 
         val saltB64 = prefs.masterSalt() ?: return UnlockResult.Error("密码库尚未初始化")
-        val wrappedB64 = prefs.masterWrappedDek() ?: return UnlockResult.Error("密码库尚未初始化")
+        val wrappedDek = masterWrappedDekBytes() ?: return UnlockResult.Error("密码库尚未初始化")
 
         return try {
             val masterKey = CryptoManager.deriveKey(
@@ -220,7 +223,7 @@ class KeyManager(
                 CryptoManager.decode(saltB64),
                 prefs.masterIterations()
             )
-            val dekBytes = CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64))
+            val dekBytes = CryptoManager.decrypt(masterKey, wrappedDek)
             dekBytes.fill(0)
             prefs.resetFailures()
             UnlockResult.Success
@@ -245,7 +248,7 @@ class KeyManager(
         val wrapped = wrapDek(recoveryKey, dek)
         prefs.updateRecoveryMaterial(
             recoverySalt = CryptoManager.encode(salt),
-            recoveryWrappedDek = CryptoManager.encode(wrapped),
+            recoveryWrappedDek = encodeWrappedDek(wrapped),
             recoveryQuestion = question,
             recoveryIterations = iterations
         )
@@ -266,8 +269,8 @@ class KeyManager(
         val wrapped = wrapDek(mnemonicKey, dek)
         prefs.updateMnemonicMaterial(
             mnemonicSalt = CryptoManager.encode(salt),
-            mnemonicWrappedDek = CryptoManager.encode(wrapped),
-            mnemonicVerifierHash = mnemonicManager.verifierHash(normalizedMnemonic, salt)
+            mnemonicWrappedDek = encodeWrappedDek(wrapped),
+            mnemonicVerifierHash = encodeProtectedString(mnemonicManager.verifierHash(normalizedMnemonic, salt))
         )
         prefs.resetFailures()
         return UnlockResult.Success
@@ -293,21 +296,21 @@ class KeyManager(
         val wrapped = wrapDek(masterKey, dek)
         prefs.updateMasterMaterial(
             masterSalt = CryptoManager.encode(salt),
-            masterWrappedDek = CryptoManager.encode(wrapped),
+            masterWrappedDek = encodeWrappedDek(wrapped),
             masterIterations = iterations
         )
     }
 
     private suspend fun verifyMasterAndGetDek(masterPassword: String): SecretKey? {
         val saltB64 = prefs.masterSalt() ?: return null
-        val wrappedB64 = prefs.masterWrappedDek() ?: return null
+        val wrappedDek = masterWrappedDekBytes() ?: return null
         return try {
             val masterKey = CryptoManager.deriveKey(
                 masterPassword.toCharArray(),
                 CryptoManager.decode(saltB64),
                 prefs.masterIterations()
             )
-            secretKeyFromBytes(CryptoManager.decrypt(masterKey, CryptoManager.decode(wrappedB64)))
+            secretKeyFromBytes(CryptoManager.decrypt(masterKey, wrappedDek))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -370,6 +373,64 @@ class KeyManager(
             CryptoManager.encrypt(wrappingKey, dekBytes)
         } finally {
             dekBytes.fill(0)
+        }
+    }
+
+    private fun encodeWrappedDek(wrappedDek: ByteArray): String {
+        val deviceWrapped = KeystoreManager.wrapWithDeviceKey(wrappedDek)
+        return DEVICE_WRAPPED_PREFIX + CryptoManager.encode(deviceWrapped)
+    }
+
+    private suspend fun masterWrappedDekBytes(): ByteArray? =
+        decodeStoredWrappedDek(prefs.masterWrappedDek()) { prefs.updateMasterWrappedDek(it) }
+
+    private suspend fun recoveryWrappedDekBytes(): ByteArray? =
+        decodeStoredWrappedDek(prefs.recoveryWrappedDek()) { prefs.updateRecoveryWrappedDek(it) }
+
+    private suspend fun mnemonicWrappedDekBytes(): ByteArray? =
+        decodeStoredWrappedDek(prefs.mnemonicWrappedDek()) { prefs.updateMnemonicWrappedDek(it) }
+
+    private suspend fun mnemonicVerifierHash(): String? =
+        decodeProtectedString(prefs.mnemonicVerifierHash()) { prefs.updateMnemonicVerifierHash(it) }
+
+    private suspend fun decodeStoredWrappedDek(
+        stored: String?,
+        persistMigrated: suspend (String) -> Unit
+    ): ByteArray? {
+        if (stored.isNullOrBlank()) return null
+        return if (stored.startsWith(DEVICE_WRAPPED_PREFIX)) {
+            KeystoreManager.unwrapWithDeviceKey(CryptoManager.decode(stored.removePrefix(DEVICE_WRAPPED_PREFIX)))
+        } else {
+            val legacy = CryptoManager.decode(stored)
+            persistMigrated(encodeWrappedDek(legacy))
+            legacy
+        }
+    }
+
+    private fun encodeProtectedString(value: String): String {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        return try {
+            DEVICE_WRAPPED_PREFIX + CryptoManager.encode(KeystoreManager.wrapWithDeviceKey(bytes))
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    private suspend fun decodeProtectedString(
+        stored: String?,
+        persistMigrated: suspend (String) -> Unit
+    ): String? {
+        if (stored.isNullOrBlank()) return null
+        return if (stored.startsWith(DEVICE_WRAPPED_PREFIX)) {
+            val bytes = KeystoreManager.unwrapWithDeviceKey(CryptoManager.decode(stored.removePrefix(DEVICE_WRAPPED_PREFIX)))
+            try {
+                String(bytes, Charsets.UTF_8)
+            } finally {
+                bytes.fill(0)
+            }
+        } else {
+            persistMigrated(encodeProtectedString(stored))
+            stored
         }
     }
 

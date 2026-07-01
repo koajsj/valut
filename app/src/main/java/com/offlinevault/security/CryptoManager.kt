@@ -1,6 +1,7 @@
 package com.offlinevault.security
 
 import java.security.SecureRandom
+import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -132,4 +133,9 @@ object CryptoManager {
     fun encode(bytes: ByteArray): String = Base64.getEncoder().withoutPadding().encodeToString(bytes)
 
     fun decode(value: String): ByteArray = Base64.getDecoder().decode(value)
+
+    fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

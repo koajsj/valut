@@ -74,6 +74,7 @@ class BackupManager(
         val iterations = CryptoManager.DEFAULT_PBKDF2_ITERATIONS
         val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
         val plainBytes = plainJson.toByteArray(Charsets.UTF_8)
+        val integrityHash = CryptoManager.sha256Hex(plainBytes)
         val blob = try {
             CryptoManager.encrypt(key, plainBytes)
         } finally {
@@ -83,7 +84,8 @@ class BackupManager(
         val wrapper = EncryptedBackup(
             salt = CryptoManager.encode(salt),
             data = CryptoManager.encode(blob),
-            iterations = iterations
+            iterations = iterations,
+            integrityHash = integrityHash
         )
         val result = gson.toJson(wrapper)
         if (!validateEncryptedJsonBackup(result, backupPassword)) {
@@ -494,6 +496,11 @@ class BackupManager(
             )
             val key = CryptoManager.deriveKey(backupPassword.toCharArray(), salt, iterations)
             val plainBytes = CryptoManager.decrypt(key, CryptoManager.decode(wrapper.data))
+            if (wrapper.integrityHash.isNotBlank() &&
+                !wrapper.integrityHash.equals(CryptoManager.sha256Hex(plainBytes), ignoreCase = true)
+            ) {
+                throw IllegalArgumentException("备份完整性校验失败")
+            }
             val plain = try {
                 String(plainBytes, Charsets.UTF_8)
             } finally {

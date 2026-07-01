@@ -107,6 +107,10 @@ class SecurityPreferences(private val context: Context) {
         }
     }
 
+    suspend fun updateMasterWrappedDek(masterWrappedDek: String) {
+        context.dataStore.edit { it[Keys.MASTER_WRAPPED_DEK] = masterWrappedDek }
+    }
+
     suspend fun updateRecoveryMaterial(
         recoverySalt: String,
         recoveryWrappedDek: String,
@@ -119,6 +123,10 @@ class SecurityPreferences(private val context: Context) {
             it[Keys.RECOVERY_QUESTION] = recoveryQuestion
             it[Keys.RECOVERY_ITERATIONS] = recoveryIterations
         }
+    }
+
+    suspend fun updateRecoveryWrappedDek(recoveryWrappedDek: String) {
+        context.dataStore.edit { it[Keys.RECOVERY_WRAPPED_DEK] = recoveryWrappedDek }
     }
 
     suspend fun masterSalt(): String? = context.dataStore.data.first()[Keys.MASTER_SALT]
@@ -172,6 +180,14 @@ class SecurityPreferences(private val context: Context) {
             it[Keys.MNEMONIC_WRAPPED_DEK] = mnemonicWrappedDek
             it[Keys.MNEMONIC_VERIFIER_HASH] = mnemonicVerifierHash
         }
+    }
+
+    suspend fun updateMnemonicWrappedDek(mnemonicWrappedDek: String) {
+        context.dataStore.edit { it[Keys.MNEMONIC_WRAPPED_DEK] = mnemonicWrappedDek }
+    }
+
+    suspend fun updateMnemonicVerifierHash(mnemonicVerifierHash: String) {
+        context.dataStore.edit { it[Keys.MNEMONIC_VERIFIER_HASH] = mnemonicVerifierHash }
     }
 
     suspend fun clearMnemonicMaterial() {

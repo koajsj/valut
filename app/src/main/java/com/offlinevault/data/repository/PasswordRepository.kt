@@ -329,6 +329,20 @@ class PasswordRepository(private val passwordDao: PasswordDao) {
         }
     }
 
+    suspend fun assertVaultIntegrity() {
+        val key = SessionManager.requireKey()
+        passwordDao.getAllIncludingTrashedOnce().forEach { row ->
+            decryptMetadata(row)
+            decryptRequired(key, row.encryptedPassword, "password", row.id)
+            if (row.encryptedNote.isNotBlank()) {
+                decryptRequired(key, row.encryptedNote, "note", row.id)
+            }
+        }
+        passwordDao.allHistoryOnce().forEach { row ->
+            decryptRequired(key, row.encryptedPassword, "history", row.id)
+        }
+    }
+
     /** Resilient variant used by list flows: returns null instead of throwing on a corrupted row. */
     private fun decryptMetadataOrNull(entity: PasswordEntity): PasswordEntity? =
         runCatching { decryptMetadata(entity) }.getOrNull()

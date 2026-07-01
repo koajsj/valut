@@ -146,6 +146,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        SessionManager.lock()
         runCatching { unregisterReceiver(screenOffReceiver) }
         super.onDestroy()
     }
@@ -155,15 +156,7 @@ class MainActivity : FragmentActivity() {
         // A system picker or the biometric prompt fronted us — don't lock for that.
         if (LockGuard.suppressNextBackground) return
         backgroundedAt = System.currentTimeMillis()
-        lifecycleScope.launch {
-            try {
-                if (prefs.autoLockSecondsValue() == 0) SessionManager.lock()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                SessionManager.lock()
-            }
-        }
+        SessionManager.lock()
     }
 
     override fun onStart() {

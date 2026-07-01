@@ -32,7 +32,9 @@ data class EncryptedBackup(
     val salt: String = "",
     val data: String = "",
     /** PBKDF2 iterations used to derive the backup key. 0/absent => legacy backup. */
-    val iterations: Int = 0
+    val iterations: Int = 0,
+    /** SHA-256 of the decrypted JSON payload. Empty means legacy backup. */
+    val integrityHash: String = ""
 )
 
 enum class ImportConflictStrategy {

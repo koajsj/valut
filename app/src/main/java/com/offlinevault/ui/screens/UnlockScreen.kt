@@ -66,7 +66,7 @@ fun UnlockScreen(
 
     // Auto-submit a numeric PIN as soon as it reaches the required length.
     LaunchedEffect(password) {
-        if (credentialType.isNumeric && !state.isLoading && credentialType.isValid(password)) {
+        if (credentialType.isNumeric && !state.isLoading && state.delaySeconds <= 0 && credentialType.isValid(password)) {
             onUnlock(password)
         }
     }

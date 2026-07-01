@@ -24,20 +24,34 @@ class OfflineVaultApp : Application() {
         container = AppContainer(this)
         applicationScope.launch {
             SessionManager.unlocked.filter { it }.collect {
-                withContext(Dispatchers.IO) {
+                val integrityOk = withContext(Dispatchers.IO) {
                     try {
+                        container.passwordRepository.assertVaultIntegrity()
                         container.vaultRepository.migrateLegacyMetadata()
                         container.passwordRepository.migrateLegacyMetadata()
                         // Permanently remove recycle-bin items past their retention window.
                         container.passwordRepository.purgeExpiredTrash()
+                        true
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
-                        // A damaged legacy row must not terminate the application-wide collector.
+                        false
                     }
+                }
+                if (!integrityOk) {
+                    SessionManager.lock()
+                    Toast.makeText(this, "密码库完整性校验失败，已锁定", Toast.LENGTH_SHORT).show()
+                    return@collect
                 }
                 persistPendingAutofillSave()
             }
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            SessionManager.lock()
         }
     }
 

@@ -41,6 +41,9 @@ interface PasswordDao {
     @Query("SELECT * FROM passwords WHERE deletedAt = 0")
     suspend fun getAllOnce(): List<PasswordEntity>
 
+    @Query("SELECT * FROM passwords")
+    suspend fun getAllIncludingTrashedOnce(): List<PasswordEntity>
+
     // ---- Recycle bin (soft delete) ----
 
     @Query("SELECT * FROM passwords WHERE deletedAt > 0 ORDER BY deletedAt DESC")
@@ -75,6 +78,9 @@ interface PasswordDao {
 
     @Query("SELECT * FROM password_history WHERE passwordId = :passwordId ORDER BY changedAt DESC")
     suspend fun historyForOnce(passwordId: String): List<PasswordHistoryEntity>
+
+    @Query("SELECT * FROM password_history")
+    suspend fun allHistoryOnce(): List<PasswordHistoryEntity>
 
     /** Keeps only the [keep] most-recent history rows for a credential, deleting older ones. */
     @Query(

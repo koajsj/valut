@@ -22,6 +22,7 @@ object KeystoreManager {
 
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val KEY_ALIAS = "offline_vault_biometric_key"
+    private const val MATERIAL_KEY_ALIAS = "offline_vault_material_key"
     private const val GCM_TAG_BITS = 128
     private const val IV_LENGTH = 12
 
@@ -47,6 +48,23 @@ object KeystoreManager {
                     setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
                 }
             }
+            .build()
+        generator.init(spec)
+        return generator.generateKey()
+    }
+
+    private fun getOrCreateMaterialKey(): SecretKey {
+        val ks = keyStore()
+        (ks.getKey(MATERIAL_KEY_ALIAS, null) as? SecretKey)?.let { return it }
+
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        val spec = KeyGenParameterSpec.Builder(
+            MATERIAL_KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
             .build()
         generator.init(spec)
         return generator.generateKey()
@@ -81,4 +99,17 @@ object KeystoreManager {
     }
 
     fun joinIv(iv: ByteArray, ciphertext: ByteArray): ByteArray = iv + ciphertext
+
+    fun wrapWithDeviceKey(plaintext: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateMaterialKey())
+        return joinIv(cipher.iv, cipher.doFinal(plaintext))
+    }
+
+    fun unwrapWithDeviceKey(blob: ByteArray): ByteArray {
+        val (iv, ciphertext) = splitIv(blob)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateMaterialKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
+        return cipher.doFinal(ciphertext)
+    }
 }
